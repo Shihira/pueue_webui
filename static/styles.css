@@ -1,0 +1,3 @@
+.text-input-with-proper-background .pf-v5-c-form-control {
+    --pf-v5-c-form-control--BackgroundColor: transparent;
+}
