@@ -67,13 +67,27 @@ def run_local_command_async(_id, commands):
     t = threading.Thread(target=f)
     t.start()
 
+@jsonrpc_method
+def pueue_webui_meta(data=None):
+    config_path = status_path / 'pueue_webui.json'
+    if not config_path.exists():
+        config_path.write_text('{}')
+    if data is None:
+        conf = json.loads(config_path.read_text())
+        conf['cwd'] = os.getcwd()
+        if 'groups' not in conf:
+            conf['groups'] = {}
+        return conf
+    else:
+        config_path.write_text(json.dumps(data))
+        return True
+
 class LogUpdatedHandler(watchdog.events.FileSystemEventHandler):
     def __init__(self):
         self.last_call = 0
 
     def on_any_event(self, event):
-        if time.time() - self.last_call < 0.1:
-            return
+        print('log', event, file=sys.stderr)
 
         path = pathlib.Path(event.src_path)
         if not path.exists():
@@ -91,8 +105,6 @@ class LogUpdatedHandler(watchdog.events.FileSystemEventHandler):
 
         if prev_size > curr_size:
             prev_size = 0
-
-        #print('log', event, subscribed, prev_size, curr_size, file=sys.stderr)
 
         if subscribed and prev_size != curr_size:
             content = ''

@@ -13,3 +13,14 @@
 .log-view pre {
     font-size: 0.8em;
 }
+
+.envs-view {
+    overflow: scroll;
+    max-height: 250px;
+    padding: 10px;
+}
+
+.envs-view pre {
+    font-size: 0.8em;
+}
+

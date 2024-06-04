@@ -50,7 +50,7 @@ export class PueueManager {
         this.jsonrpcWebsocket.onerror = (e) => { console.log(e); }
     }
 
-    pueue(subcommands : string | string[], options : any = {}, args : string[] = []) : Promise<any> {
+    call_rpc(method : string, params: any) : Promise<any> {
         const self = this;
         return new Promise((cb) => {
             const id = self.idCounter
@@ -58,41 +58,27 @@ export class PueueManager {
             self.send({
                 jsonrpc: '2.0',
                 id: id,
-                method: 'pueue',
-                params: [subcommands, options, args]
+                method,
+                params,
             });
             self.callbacks[id] = cb;
         });
+    }
+
+    pueue(subcommands : string | string[], options : any = {}, args : string[] = []) : Promise<any> {
+        return this.call_rpc('pueue', [subcommands, options, args]);
     };
 
     pueue_log_subscription(taskId : string, addOrDel : boolean, options={}) : Promise<any> {
-        const self = this;
-        return new Promise((cb) => {
-            const id = self.idCounter
-            self.idCounter += 1;
-            self.send({
-                jsonrpc: '2.0',
-                id: id,
-                method: 'pueue_log_subscription',
-                params: [taskId, addOrDel, options]
-            });
-            self.callbacks[id] = cb;
-        });
+        return this.call_rpc('pueue_log_subscription', [taskId, addOrDel, options]);
+    };
+
+    pueue_webui_meta(data : any = null) : Promise<any> {
+        return this.call_rpc('pueue_webui_meta', [data]);
     };
 
     run_local_command_async(cmd : string[]) : Promise<any> {
-        const self = this;
-        return new Promise((cb) => {
-            const id = self.idCounter
-            self.idCounter += 1;
-            self.send({
-                jsonrpc: '2.0',
-                id: id,
-                method: 'run_local_command_async',
-                params: [cmd]
-            });
-            self.callbacks[id] = cb;
-        });
+        return this.call_rpc('run_local_command_async', [cmd]);
     };
 }
 

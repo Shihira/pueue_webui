@@ -13,14 +13,18 @@ import {
     DescriptionListGroup,
     DescriptionListTerm,
     Label,
+    NumberInput,
     Tab,
     Tabs,
     Text,
     TextInput,
+    TextInputGroup,
+    TextInputGroupMain,
+    TextInputGroupUtilities,
     TextVariants,
 } from '@patternfly/react-core';
 
-import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon } from '@patternfly/react-icons';
+import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon, CheckIcon } from '@patternfly/react-icons';
 import { pueueManager, PueueMessageEvent } from './pueue-manager';
 import { UpdateDepots } from './update-depots';
 
@@ -41,6 +45,16 @@ const formatTime = (date : Date | null) : string => {
     );
 }
 
+class PueueContext {
+    tasks : any;
+    groups : any;
+}
+
+const textInputBinder = (state, setState, arg : string) => ({
+    id: arg,
+    value: state[arg],
+    onChange: (_, v) => setState((x) => { const new_x = {...x}; new_x[arg] = v; return new_x; }),
+});
 
 const DescLog = ({id, task}) => {
     const [log, setLog] = React.useState<string>('');
@@ -118,13 +132,13 @@ const Desc = (kv : any) => {
     return (
         <DescriptionListGroup>
             <DescriptionListTerm>{kv.name}</DescriptionListTerm>
-            <DescriptionListDescription>{kv.value}</DescriptionListDescription>
+            <DescriptionListDescription>{kv.children}</DescriptionListDescription>
         </DescriptionListGroup>
     );
 };
 
 
-const PueueGroupTable = ({ group, groupDetail } : { group : string, groupDetail : any }) => {
+const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupDetail : any, meta: any }) => {
     const [ tasks, setTasks ] = React.useState<any>({});
     const [ expandedRows, setExpandedRows ] = React.useState<any>({});
 
@@ -183,8 +197,13 @@ const PueueGroupTable = ({ group, groupDetail } : { group : string, groupDetail 
                 <Td colSpan={5}>
                     <ExpandableRowContent>
                         <DescriptionList isHorizontal termWidth='20ch' isCompact>
-                            <Desc name={'Status'} value={unfoldStatus(task.status)}/>
-                            <Desc name={'Working Directory'} value={task.path}/>
+                            <Desc name={'Status'}>{unfoldStatus(task.status)}</Desc>
+                            <Desc name={'Working Directory'}>{task.path}</Desc>
+                            <Desc name={'Environments'}><div className='envs-view'>
+                                <pre>
+                                    {Object.entries(task.envs).map(([k, v]) => `${k} = "${v}"`).join('\n')}
+                                </pre>
+                            </div></Desc>
                             <DescLog id={id} task={task}/>
                         </DescriptionList>
                     </ExpandableRowContent>
@@ -224,62 +243,121 @@ const PueueGroupTable = ({ group, groupDetail } : { group : string, groupDetail 
         rowIndex += 1;
     }
 
-    const addOptions = useRef<{label: string, command: string, deps: string, delay: string}>({label: "", command: "", deps: "", delay: ""});
+    const [ form, setForm ] = React.useState<{
+        label: string,
+        command: string,
+        deps: string,
+        delay: string,
+        parallel: string,
+        dir: string,
+    }>({
+        label: "",
+        command: "",
+        deps: "",
+        delay: "",
+        parallel: groupDetail.parallel_tasks.toString(),
+        dir: (group in meta.groups) && meta.groups[group].dir ? meta.groups[group].dir : "",
+    });
+    const bindForm = textInputBinder.bind(null, form, setForm);
 
     return (
-    <>
     <Card>
-        <CardBody>
-            <DescriptionList isHorizontal termWidth='20ch' isCompact>
-                <Desc name={'Status'} value={groupDetail.status}/>
-                <Desc name={'Parallel Tasks'} value={groupDetail.parallel_tasks}/>
-            </DescriptionList>
-        </CardBody>
+    <CardBody>
+        <DescriptionList isHorizontal termWidth='20ch' isCompact>
+            <Desc name={'Group Name'}>{group}</Desc>
+            <Desc name={'Status'}>
+                {groupDetail.status}
+                <Button style={{marginLeft: 30}}>Pause</Button>
+            </Desc>
+            <Desc name={'Parallel Tasks'}>
+                <TextInputGroup>
+                    <TextInputGroupMain {...bindForm('parallel')}/>
+                    <TextInputGroupUtilities>
+                        <Button variant='plain' onClick={() => {
+                                pueueManager.pueue('parallel', {group}, [form.parallel]);
+                            }}
+                        ><CheckIcon/></Button>
+                    </TextInputGroupUtilities>
+                </TextInputGroup>
+            </Desc>
+            <Desc name={'Working Directory'}>
+                <TextInputGroup>
+                    <TextInputGroupMain placeholder={meta.cwd} {...bindForm('dir')}/>
+                    <TextInputGroupUtilities>
+                        <Button variant='plain' onClick={() => {
+                                const newMeta = structuredClone(meta);
+                                newMeta.groups[group].dir = form.dir;
+                                pueueManager.pueue_webui_meta(newMeta);
+                            }}
+                        ><CheckIcon/></Button>
+                    </TextInputGroupUtilities>
+                </TextInputGroup>
+            </Desc>
+        </DescriptionList>
+    </CardBody>
+    <CardBody>
+        <Table variant='compact'>
+            <Thead>
+                <Tr>
+                    <Th aria-label="expand"></Th>
+                    <Th width={10}>Label</Th>
+                    <Th width={30}>Command</Th>
+                    <Th width={10}>Dependencies</Th>
+                    <Th width={10}>Timing (<Text component={TextVariants.a}>Show Date</Text>)</Th>
+                    <Th width={10} aria-label="actions"></Th>
+                </Tr>
+            </Thead>
+            {rows}
+            <Tbody key={"launch"}>
+                <Tr className={'text-input-with-proper-background'}>
+                    <Td></Td>
+                    <Td><TextInput placeholder='Label' {...bindForm('label')}/></Td>
+                    <Td><TextInput placeholder='Command' {...bindForm('command')}/></Td>
+                    <Td><TextInput placeholder='Dependencies' {...bindForm('deps')}/></Td>
+                    <Td><TextInput placeholder='Delay (e.g. 15s, 1d)' {...bindForm('delay')}/></Td>
+                    <Td>
+                        <Button variant='plain' onClick={()=>pueueManager.pueue('add', {
+                                label: form.label ? form.label : null,
+                                after: form.deps  ? form.deps.split(',') : [],
+                                delay: form.delay ? form.delay : null,
+                                group: group,
+                                working_directory: form.dir ? form.dir : meta.cwd,
+                            }, [form.command])
+                        }>
+                            <PlusCircleIcon/>
+                        </Button>
+                    </Td>
+                </Tr>
+            </Tbody>
+        </Table>
+    </CardBody>
     </Card>
-    <Table variant='compact'>
-        <Thead>
-            <Tr>
-                <Th></Th>
-                <Th width={10}>Label</Th>
-                <Th width={30}>Command</Th>
-                <Th width={10}>Dependencies</Th>
-                <Th width={10}>Timing (<Text component={TextVariants.a}>Show Date</Text>)</Th>
-                <Th width={10}></Th>
-            </Tr>
-        </Thead>
-        {rows}
-        <Tbody key={"launch"}>
-            <Tr className={'text-input-with-proper-background'}>
-                <Td></Td>
-                <Td><TextInput id='label' placeholder='Label' onChange={(_, v)=>{addOptions.current.label = v;}}/></Td>
-                <Td><TextInput id='command' placeholder='Command' onChange={(_, v)=>{addOptions.current.command = v;}}/></Td>
-                <Td><TextInput id='deps' placeholder='Dependencies' onChange={(_, v)=>{addOptions.current.deps = v;}}/></Td>
-                <Td><TextInput id='delay' placeholder='Delay (e.g. 15s, 1d)' onChange={(_, v)=>{addOptions.current.delay = v;}}/></Td>
-                <Td>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('add', {
-                            label: addOptions.current.label ? addOptions.current.label : null,
-                            after: addOptions.current.deps ? addOptions.current.deps.split(',') : [],
-                            delay: addOptions.current.delay ? addOptions.current.delay : null,
-                            group: group,
-                        }, [addOptions.current.command])
-                    }>
-                        <PlusCircleIcon/>
-                    </Button>
-                </Td>
-            </Tr>
-        </Tbody>
-    </Table>
-    </>
     );
 };
 
 const PueuePage = () => {
     const [ currentGroup, setCurrentGroup ] = React.useState<string>('default');
     const [ groups, setGroups ] = React.useState<any>({});
+    const [ meta, setMeta ] = React.useState<any>({cwd: '', groups: {}});
 
     React.useEffect(() => {
-        pueueManager.pueue('group', { json: true })
-            .then((data) => { setGroups(data); });
+        Promise.all([
+            pueueManager.pueue_webui_meta(),
+            pueueManager.pueue('group', { json: true })
+        ]).then(([metaData, groupData]) => {
+            // tidy meta data
+            metaData.cwd = metaData.cwd || '';
+            metaData.groups = metaData.groups || {};
+
+            for (const g in groupData)
+                metaData.groups[g] = metaData.groups[g] || {};
+            for (const g in metaData.groups)
+                if (!(g in groupData))
+                    delete metaData.groups[g];
+
+            setMeta(metaData);
+            setGroups(groupData);
+        });
     }, []);
 
     const groupTabs = Object.keys(groups).map((group) => (
@@ -288,7 +366,7 @@ const PueuePage = () => {
             eventKey={group}
             title={group}
         >
-            { currentGroup == group ? <PueueGroupTable group={group} groupDetail={groups[group]}/> : <></> }
+            { currentGroup == group ? <PueueGroupTable group={group} groupDetail={groups[group]} meta={meta}/> : <></> }
         </Tab>
     ));
 
