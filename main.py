@@ -3,21 +3,40 @@ import time
 import os
 import sys
 import subprocess
-import watchdog.observers
 import watchdog.events
 import threading
 import pathlib
 import platform
+import contextlib
 
 from pueue_controller import PueueController, PueueError
+from typing import Dict
 
 jsonrpc_methods = {}
+
+log_subscriber : Dict[str, int] = {}
+
 print_lock = threading.Lock()
+log_subscriber_lock = threading.Lock()
+
+if platform.system() == "Windows":
+    status_path = pathlib.Path(os.environ['LOCALAPPDATA']) / 'pueue'
+    logs_path = pathlib.Path(os.environ['LOCALAPPDATA']) / 'pueue/task_logs'
+elif platform.system() == "Darwin":
+    status_path = pathlib.Path.home() / 'Library/Application Support/pueue/task_logs'
+    logs_path = pathlib.Path.home() / 'Library/Application Support/pueue/task_logs'
 
 def jsonrpc_method(method):
     global jsonrpc_methods
     jsonrpc_methods[method.__name__] = method
     return method
+
+def jsonrpc_response(r):
+    if r:
+        r['jsonrpc'] = '2.0'
+        resp = json.dumps(r, separators=(',', ':'))
+        with print_lock:
+            print(resp, flush=True)
 
 @jsonrpc_method
 def pueue(subcommands, options={}, args=[]):
@@ -36,8 +55,7 @@ def run_local_command_async(_id, commands):
     def f():
         proc = subprocess.run(commands, capture_output=True, encoding='utf-8', stdin=subprocess.DEVNULL)
 
-        response = json.dumps({
-            'jsonrpc': '2.0',
+        jsonrpc_response({
             'id': _id,
             'result': {
                 "returncode": proc.returncode,
@@ -46,15 +64,10 @@ def run_local_command_async(_id, commands):
             }
         })
 
-        with print_lock:
-            print(response, flush=True)
-
     t = threading.Thread(target=f)
     t.start()
 
-observer = watchdog.observers.Observer()
-
-class StatusUpdatedHandler(watchdog.events.FileSystemEventHandler):
+class LogUpdatedHandler(watchdog.events.FileSystemEventHandler):
     def __init__(self):
         self.last_call = 0
 
@@ -62,28 +75,106 @@ class StatusUpdatedHandler(watchdog.events.FileSystemEventHandler):
         if time.time() - self.last_call < 0.1:
             return
 
-        response = json.dumps({
+        path = pathlib.Path(event.src_path)
+        if not path.exists():
+            return
+
+        subscribed = True
+        prev_size = 0
+        curr_size = path.stat().st_size
+
+        with log_subscriber_lock:
+            subscribed = path.stem in log_subscriber
+            if subscribed:
+                prev_size = log_subscriber[path.stem]
+                log_subscriber[path.stem] = curr_size
+
+        if prev_size > curr_size:
+            prev_size = 0
+
+        #print('log', event, subscribed, prev_size, curr_size, file=sys.stderr)
+
+        if subscribed and prev_size != curr_size:
+            content = ''
+            with path.open('rb') as f:
+                f.seek(prev_size)
+                bytes = f.read(curr_size - prev_size)
+                content = bytes.decode('utf-8', errors='ignore')
+
+            jsonrpc_response({
+                'method': 'onLogUpdated',
+                'params': [path.stem, prev_size, curr_size, content],
+            })
+
+        self.last_call = time.time()
+
+@jsonrpc_method
+def pueue_log_subscription(taskId, addOrDel, options):
+    path = (logs_path / f'{taskId}.log')
+
+    if addOrDel:
+        max_lines = int(options.get('lines', 1000))
+        max_bytes = int(options.get('bytes', 500000))
+
+        start_size = 0
+        end_size = 0
+        content = ''
+
+        if path.exists():
+            end_size = path.stat().st_size
+            start_size = max(0, end_size - max_bytes)
+
+            with path.open('rb') as f:
+                f.seek(start_size)
+                bytes = f.read(end_size - start_size)
+                content = bytes.decode('utf-8', errors='ignore')
+                content = '\n'.join(content.split('\n')[-max_lines:])
+
+        with log_subscriber_lock:
+            log_subscriber[taskId] = end_size
+
+        return [path.stem, start_size, end_size, content]
+    else:
+        with log_subscriber_lock:
+            del log_subscriber[taskId]
+        return True
+
+
+
+class StatusUpdatedHandler(watchdog.events.FileSystemEventHandler):
+    def __init__(self):
+        self.last_call = 0
+
+    def on_any_event(self, event):
+        print('status', event, file=sys.stderr)
+
+        if time.time() - self.last_call < 0.1:
+            return
+
+        jsonrpc_response({
             'jsonrpc': '2.0',
             'method': 'onStatusUpdated',
             #'params': [repr(event)],
             'params': [],
         })
 
-        with print_lock:
-            print(response, flush=True)
-
         self.last_call = time.time()
 
 def stdio_main():
-    observer.start()
+    observer = None
     if platform.system() == "Windows":
-        observer.schedule(StatusUpdatedHandler(), str(pathlib.Path.home() / 'AppData/Local/pueue'), recursive=False)
-    elif platform.system() == "Darwin":
-        observer.schedule(StatusUpdatedHandler(), str(pathlib.Path.home() / 'Library/Application Support/pueue'), recursive=False)
+        import watchdog.observers.polling
+        observer = watchdog.observers.polling.PollingObserver()
+    else:
+        import watchdog.observers
+        observer = watchdog.observers.Observer()
+
+    observer.start()
+    observer.schedule(StatusUpdatedHandler(), str(status_path), recursive=False)
+    observer.schedule(LogUpdatedHandler(), str(logs_path), recursive=False)
 
     while True:
         request = {}
-        response = None
         try:
             request_str = input()
             #print('<- ' + request_str, file=sys.stderr)
@@ -96,33 +187,25 @@ def stdio_main():
             if is_async:
                 continue
 
-            response = json.dumps({
-                'jsonrpc': '2.0',
+            jsonrpc_response({
                 'result': result,
                 'id': request['id']
-            }, separators=(',', ':'))
+            })
         except PueueError as e:
-            response = json.dumps({
-                'jsonrpc': '2.0',
+            jsonrpc_response({
                 'error': { 'code': 32001, 'message': f'PueueError({e.args[0]})', 'data': str(e.args[1]) },
                 'id': request['id'] if id in request else None
-            }, separators=(',', ':'))
+            })
         except EOFError:
             break
         except KeyboardInterrupt:
             break
         except Exception as e:
             import traceback
-            response = json.dumps({
-                'jsonrpc': '2.0',
+            jsonrpc_response({
                 'error': { 'code': 32600, 'message': type(e).__name__, 'data': traceback.format_exc() },
                 'id': request['id'] if id in request else None
-            }, separators=(',', ':'))
-
-        #print('-> ' + response, file=sys.stderr)
-        with print_lock:
-            if response is not None:
-                print(response, flush=True)
+            })
 
     observer.stop()
 

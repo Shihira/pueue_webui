@@ -3,17 +3,11 @@ import { createRoot } from 'react-dom/client';
 import {
     ExpandableRowContent,
     Table, Thead, Tbody, Tr, Th, Td,
-    SortByDirection
 } from '@patternfly/react-table';
 import {
-    Badge,
-    Banner,
     Button,
     Card,
     CardBody,
-    CardTitle,
-    CodeBlock,
-    CodeBlockCode,
     DescriptionList,
     DescriptionListDescription,
     DescriptionListGroup,
@@ -27,7 +21,7 @@ import {
 } from '@patternfly/react-core';
 
 import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon } from '@patternfly/react-icons';
-import { pueueManager } from './pueue-manager';
+import { pueueManager, PueueMessageEvent } from './pueue-manager';
 import { UpdateDepots } from './update-depots';
 
 import "@patternfly/patternfly/patternfly";
@@ -50,6 +44,8 @@ const formatTime = (date : Date | null) : string => {
 
 const DescLog = ({id, task}) => {
     const [log, setLog] = React.useState<string>('');
+    const elemRef = React.useRef<HTMLDivElement>(null);
+
     const [followLog, setFollowLog] = React.useState<boolean>(false);
     const followLogRef = useRef<boolean>(false);
 
@@ -62,17 +58,42 @@ const DescLog = ({id, task}) => {
         }
     };
 
+    const appendLog = (e : Event) => {
+        const data = (e as PueueMessageEvent).data;
+        if (data[0] != id) {
+            console.log(data[0], id);
+            return;
+        }
+        setLog((l) => l + data[3]);
+    };
+
     useEffect(() => {
-        updateLog();
+        //updateLog();
+        pueueManager.observer.addEventListener('onLogUpdated', appendLog);
+        pueueManager.pueue_log_subscription(id, true)
+            .then((data) => pueueManager.observer.dispatchEvent(new PueueMessageEvent('onLogUpdated', data)));
         //console.log('mounted', id);
         //return () => console.log('unmounted', id);
+        return () => {
+            pueueManager.pueue_log_subscription(id, false);
+            pueueManager.observer.removeEventListener('onLogUpdated', appendLog);
+        };
     }, []);
 
     useEffect(() => {
-        if (followLog)
+        if (elemRef.current) {
+            elemRef.current.scrollTop = elemRef.current.scrollHeight;
+        }
+    }, [log]);
+
+    useEffect(() => {
+        if (followLog) {
             updateLog();
+        }
         followLogRef.current = followLog;
-        return () => { followLogRef.current = false; }
+        return () => {
+            followLogRef.current = false;
+        }
     }, [followLog]);
 
     return (
@@ -84,8 +105,10 @@ const DescLog = ({id, task}) => {
                     }}
                 />
             </DescriptionListTerm>
-            <DescriptionListDescription style={{overflow: 'auto'}}>
-                <pre style={{fontSize: "0.8em"}}>{log}</pre>
+            <DescriptionListDescription>
+                <div ref={elemRef} className='log-view'>
+                    <pre>{log}</pre>
+                </div>
             </DescriptionListDescription>
         </DescriptionListGroup>
     );
@@ -101,7 +124,7 @@ const Desc = (kv : any) => {
 };
 
 
-const PueueGroupTable = ({ group } : { group : string }) => {
+const PueueGroupTable = ({ group, groupDetail } : { group : string, groupDetail : any }) => {
     const [ tasks, setTasks ] = React.useState<any>({});
     const [ expandedRows, setExpandedRows ] = React.useState<any>({});
 
@@ -109,7 +132,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
         if (timeout)
             await timeout(after);
         const data = await pueueManager.pueue('status', { json: true, group:  group });
-        setTasks(data['tasks']);
+        setTasks(data.tasks);
     };
 
     const updateStatusDelayed = () => { updateStatus(100); };
@@ -157,7 +180,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
         const detailRow = (
             <Tr key='detail'>
                 <Td></Td>
-                <Td colSpan={4}>
+                <Td colSpan={5}>
                     <ExpandableRowContent>
                         <DescriptionList isHorizontal termWidth='20ch' isCompact>
                             <Desc name={'Status'} value={unfoldStatus(task.status)}/>
@@ -204,6 +227,15 @@ const PueueGroupTable = ({ group } : { group : string }) => {
     const addOptions = useRef<{label: string, command: string, deps: string, delay: string}>({label: "", command: "", deps: "", delay: ""});
 
     return (
+    <>
+    <Card>
+        <CardBody>
+            <DescriptionList isHorizontal termWidth='20ch' isCompact>
+                <Desc name={'Status'} value={groupDetail.status}/>
+                <Desc name={'Parallel Tasks'} value={groupDetail.parallel_tasks}/>
+            </DescriptionList>
+        </CardBody>
+    </Card>
     <Table variant='compact'>
         <Thead>
             <Tr>
@@ -237,25 +269,26 @@ const PueueGroupTable = ({ group } : { group : string }) => {
             </Tr>
         </Tbody>
     </Table>
+    </>
     );
 };
 
 const PueuePage = () => {
     const [ currentGroup, setCurrentGroup ] = React.useState<string>('default');
-    const [ groups, setGroups ] = React.useState<string[]>(['default']);
+    const [ groups, setGroups ] = React.useState<any>({});
 
     React.useEffect(() => {
         pueueManager.pueue('group', { json: true })
-            .then((data) => { setGroups(Object.keys(data)); });
+            .then((data) => { setGroups(data); });
     }, []);
 
-    const groupTabs = groups.map((group) => (
+    const groupTabs = Object.keys(groups).map((group) => (
         <Tab
             key={group}
             eventKey={group}
             title={group}
         >
-            { currentGroup == group ? <PueueGroupTable group={group}/> : <></> }
+            { currentGroup == group ? <PueueGroupTable group={group} groupDetail={groups[group]}/> : <></> }
         </Tab>
     ));
 
