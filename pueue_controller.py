@@ -25,8 +25,8 @@ class PueueController:
         # controller options defaults
         if 'json' in kwargs and kwargs['json']:
             self.as_json = True
-        #if self.commands[-1] == 'status':
-        #    self.remove_envs = True
+        if self.commands[-1] == 'status':
+            self.remove_envs = True
 
         for _k, a in kwargs.items():
             if _k.startswith('__controller_'):

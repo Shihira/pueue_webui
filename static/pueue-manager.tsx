@@ -22,7 +22,7 @@ export class PueueManager {
         this.idCounter = 1000;
         this.callbacks = {};
         this.observer = new EventTarget();
-        this.jsonrpcWebsocket = new WebSocket('ws://localhost:9092');
+        this.jsonrpcWebsocket = new WebSocket('ws://' + window.location.host);
         this.jsonrpcWebsocket.onmessage = (e) => {
             const data = JSON.parse(e.data);
             console.log('recv', data);

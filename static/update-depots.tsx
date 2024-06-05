@@ -91,7 +91,7 @@ export const UpdateDepots = () => {
                 </FormGroup>
             </Form>
             <div style={{marginTop: 30}}>
-                <Button onClick={get_history} style={{marginRight: 10}}>Get History</Button>
+                <Button onClick={get_history} style={{marginRight: 10}} variant='tertiary'>Get History</Button>
                 <Button onClick={go}>Go!</Button>
             </div>
         </CardBody>

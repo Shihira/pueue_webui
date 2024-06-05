@@ -24,7 +24,7 @@ import {
     TextVariants,
 } from '@patternfly/react-core';
 
-import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon, ArrowRightIcon } from '@patternfly/react-icons';
+import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon } from '@patternfly/react-icons';
 import { pueueManager, PueueMessageEvent } from './pueue-manager';
 import { UpdateDepots } from './update-depots';
 
@@ -45,10 +45,47 @@ const formatTime = (date : Date | null) : string => {
     );
 }
 
-class PueueContext {
-    tasks : any;
-    groups : any;
+declare class PueueTask {
+    id : number;
+    command: string;
+    label: string;
+    path: string;
+    start: string;
+    end: string;
+    group: string;
+    envs: {[name: string] : string};
+    status: any;
+    dependencies: string[];
 }
+
+declare class PueueGroup {
+    status: string;
+    parallel_tasks: number;
+    dir : string;
+}
+
+declare class PueueMeta {
+    cwd : string;
+}
+
+class PueueContext {
+    tasks : {[id: string] : PueueTask} = {};
+    groups : {[id: string] : PueueGroup} = {};
+    cwd : string = "";
+
+    updateStatus : ()=>void = ()=>{};
+
+    storeMeta() {
+        pueueManager.pueue_webui_meta({
+            groups: Object.fromEntries(Object.entries(this.groups).map(([k, v]) => [k, {dir: v.dir}])),
+            cwd: this.cwd,
+        });
+    }
+}
+
+const pueueContext = React.createContext<PueueContext>(new PueueContext());
+const PueueContextProvider = pueueContext.Provider;
+//const PueueContextConsumer = pueueContext.Consumer;
 
 const textInputBinder = (state, setState, arg : string) => ({
     id: arg,
@@ -56,21 +93,9 @@ const textInputBinder = (state, setState, arg : string) => ({
     onChange: (_, v) => setState((x) => { const new_x = {...x}; new_x[arg] = v; return new_x; }),
 });
 
-const DescLog = ({id, task}) => {
+const LogView = ({id}) => {
     const [log, setLog] = React.useState<string>('');
     const elemRef = React.useRef<HTMLDivElement>(null);
-
-    const [followLog, setFollowLog] = React.useState<boolean>(false);
-    const followLogRef = useRef<boolean>(false);
-
-    const updateLog = async () => {
-        const data = await pueueManager.pueue(['log'], {lines: 20, json: true}, [id])
-        setLog(data[id].output);
-        if (followLogRef.current) {
-            await timeout(1000);
-            updateLog();
-        }
-    };
 
     const appendLog = (e : Event) => {
         const data = (e as PueueMessageEvent).data;
@@ -82,7 +107,6 @@ const DescLog = ({id, task}) => {
     };
 
     useEffect(() => {
-        //updateLog();
         pueueManager.observer.addEventListener('onLogUpdated', appendLog);
         pueueManager.pueue_log_subscription(id, true)
             .then((data) => pueueManager.observer.dispatchEvent(new PueueMessageEvent('onLogUpdated', data)));
@@ -100,31 +124,10 @@ const DescLog = ({id, task}) => {
         }
     }, [log]);
 
-    useEffect(() => {
-        if (followLog) {
-            updateLog();
-        }
-        followLogRef.current = followLog;
-        return () => {
-            followLogRef.current = false;
-        }
-    }, [followLog]);
-
     return (
-        <DescriptionListGroup>
-            <DescriptionListTerm>Logs &nbsp;
-                <SyncAltIcon color={followLog ? 'blue' : undefined}
-                    onClick={() => {
-                        setFollowLog((c) => !c);
-                    }}
-                />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-                <div ref={elemRef} className='log-view'>
-                    <pre>{log}</pre>
-                </div>
-            </DescriptionListDescription>
-        </DescriptionListGroup>
+        <div ref={elemRef} className='log-view'>
+            <pre>{log}</pre>
+        </div>
     );
 };
 
@@ -137,29 +140,12 @@ const Desc = (kv : any) => {
     );
 };
 
+const PueueTaskRow = ({ id, onCopy } : { id : string, onCopy : ()=>void }) => {
+    const [ isExpanded, setIsExapnded ] = React.useState<boolean>(false);
+    const [ envs, setEnvs ] = React.useState<{[v:string] : string}>({});
 
-const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupDetail : any, meta: any }) => {
-    const [ tasks, setTasks ] = React.useState<any>({});
-    const [ expandedRows, setExpandedRows ] = React.useState<any>({});
-
-    const updateStatus = async (after : number = 0) => {
-        if (timeout)
-            await timeout(after);
-        const data = await pueueManager.pueue('status', { json: true, group:  group });
-        setTasks(data.tasks);
-    };
-
-    const updateStatusDelayed = () => { updateStatus(100); };
-
-    const constructor = () => {
-        updateStatus();
-        pueueManager.observer.addEventListener('onStatusUpdated', updateStatusDelayed);
-    };
-    const destructor = () => {
-        pueueManager.observer.removeEventListener('onStatusUpdated', updateStatusDelayed);
-    };
-
-    useEffect(() => { constructor(); return destructor }, []);
+    const context = React.useContext(pueueContext);
+    const task = context.tasks[id];
 
     const unfoldStatus = (s : any) => {
         if (s && typeof s == "object") {
@@ -170,7 +156,7 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
     };
 
     const getLabel = (id : string) => {
-        const task = tasks[id];
+        const task = context.tasks[id];
         const status = task ? unfoldStatus(task.status) : [];
         const statusColor = (
             status.indexOf('Success') >= 0 ? 'green' :
@@ -182,74 +168,67 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
         return (<Label key={id} color={statusColor}>{task?.label}#{id}</Label>);
     };
 
-    const rows : React.ReactNode[] = [];
-    var rowIndex = 0;
-    for (const id in tasks) {
-        const task = tasks[id];
+    const dateStart = task.start ? new Date(Date.parse(task.start)) : null;
+    const dateEnd = task.end ? new Date(Date.parse(task.end)) : null;
 
-        const dateStart = task.start ? new Date(Date.parse(task.start)) : null;
-        const dateEnd = task.end ? new Date(Date.parse(task.end)) : null;
-        const isExpanded = Boolean(expandedRows[id]);
+    const detailRow = (
+        <Tr key='detail'>
+            <Td></Td>
+            <Td colSpan={5}>
+                <ExpandableRowContent>
+                    <DescriptionList isHorizontal termWidth='20ch' isCompact>
+                        <Desc name={'Status'}>{unfoldStatus(task.status).join(' ')}</Desc>
+                        <Desc name={'Working Directory'}>{task.path}</Desc>
+                        <Desc name={'Environments'}>
+                            { Object.keys(envs).length == 0 ? (
+                                <Button size='sm' variant='secondary'
+                                    onClick={()=>pueueManager.pueue('status', {json: true, group: task.group, __controller_remove_envs: false}).then((data) => setEnvs(data.tasks[id].envs))}
+                                >...</Button>
+                                ) : (
+                                <div className='envs-view'>
+                                    <pre>
+                                        {Object.entries(envs).map(([k, v]) => `${k} = "${v}"`).join('\n')}
+                                    </pre>
+                                </div>
+                                )
+                            }
+                        </Desc>
+                        <Desc name={'Log'}><LogView id={id}/></Desc>
+                    </DescriptionList>
+                </ExpandableRowContent>
+            </Td>
+        </Tr>
+    );
 
-        const detailRow = (
-            <Tr key='detail'>
-                <Td></Td>
-                <Td colSpan={5}>
-                    <ExpandableRowContent>
-                        <DescriptionList isHorizontal termWidth='20ch' isCompact>
-                            <Desc name={'Status'}>{unfoldStatus(task.status).join(' ')}</Desc>
-                            <Desc name={'Working Directory'}>{task.path}</Desc>
-                            <Desc name={'Environments'}><div className='envs-view'>
-                                <pre>
-                                    {Object.entries(task.envs).map(([k, v]) => `${k} = "${v}"`).join('\n')}
-                                </pre>
-                            </div></Desc>
-                            <DescLog id={id} task={task}/>
-                        </DescriptionList>
-                    </ExpandableRowContent>
-                </Td>
-            </Tr>
-        );
+    const mainRow = (
+        <Tr key='main'>
+            <Td
+                expand={{
+                    rowIndex: Number(id),
+                    isExpanded,
+                    onToggle: () => setIsExapnded((v) => !v),
+                }}
+            >
+            </Td>
+            <Td>{getLabel(id)}</Td>
+            <Td>{task.command}</Td>
+            <Td>{task.dependencies.map(getLabel)}</Td>
+            <Td>{formatTime(dateStart)}&nbsp;&nbsp;<ArrowRightIcon/>&nbsp;&nbsp;{formatTime(dateEnd)}</Td>
+            <Td>
+                <Button variant='plain' onClick={()=>pueueManager.pueue('kill', {}, [id])}><TimesIcon/></Button>
+                <Button variant='plain' onClick={()=>pueueManager.pueue('remove', {}, [id])}><TrashIcon/></Button>
+                <Button variant='plain' onClick={()=>pueueManager.pueue('restart', {in_place: true}, [id])}><RedoIcon/></Button>
+                <Button variant='plain' onClick={onCopy}><CopyIcon/></Button>
+            </Td>
+        </Tr>
+    );
 
-        const mainRow = (
-            <Tr key='main'>
-                <Td
-                    expand={{
-                        rowIndex,
-                        isExpanded,
-                        onToggle: () => {
-                            const newExpandedRows = {...expandedRows};
-                            newExpandedRows[id] = !Boolean(newExpandedRows[id]);
-                            setExpandedRows(newExpandedRows);
-                        },
-                    }}
-                >
-                </Td>
-                <Td>{getLabel(id)}</Td>
-                <Td>{task.command}</Td>
-                <Td>{task.dependencies.map(getLabel)}</Td>
-                <Td>{formatTime(dateStart)}&nbsp;&nbsp;<ArrowRightIcon/>&nbsp;&nbsp;{formatTime(dateEnd)}</Td>
-                <Td>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('kill', {}, [id])}><TimesIcon/></Button>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('remove', {}, [id])}><TrashIcon/></Button>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('restart', {in_place: true}, [id])}><RedoIcon/></Button>
-                    <Button variant='plain' onClick={()=>setForm({
-                            label: task.label + '#' + task.id,
-                            command: task.command,
-                            deps: task.dependencies.join(','),
-                            delay: "",
-                            parallel: form.parallel,
-                            dir: task.path,
-                        })}
-                    ><CopyIcon/></Button>
-                </Td>
-            </Tr>
-        );
+    return (<Tbody isExpanded={isExpanded}>{[mainRow, isExpanded ? detailRow : undefined]}</Tbody>);
+};
 
-        rows.push(<Tbody key={id} isExpanded={isExpanded}>{[mainRow, isExpanded ? detailRow : undefined]}</Tbody>);
-
-        rowIndex += 1;
-    }
+const PueueGroupTable = ({ group } : { group : string }) => {
+    const context = React.useContext(pueueContext);
+    const groupDetail = context.groups[group];
 
     const [ form, setForm ] = React.useState<{
         label: string,
@@ -264,9 +243,24 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
         deps: "",
         delay: "",
         parallel: groupDetail.parallel_tasks.toString(),
-        dir: (group in meta.groups) && meta.groups[group].dir ? meta.groups[group].dir : "",
+        dir: groupDetail.dir,
     });
     const bindForm = textInputBinder.bind(null, form, setForm);
+
+    const rows : React.ReactNode[] = Object.keys(context.tasks).map((id : string) => (
+            <PueueTaskRow key={id} id={id} onCopy={() => {
+                    const task = context.tasks[id];
+                    setForm({
+                        label: task.label + '#' + task.id,
+                        command: task.command,
+                        deps: task.dependencies.join(','),
+                        delay: "",
+                        parallel: form.parallel,
+                        dir: task.path,
+                    });
+                }}
+            />
+        ));
 
     const taskIdInplace = form.label.indexOf('#') >= 0 ? form.label.split('#')[1] : '';
 
@@ -277,7 +271,15 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
             <Desc name={'Group Name'}>{group}</Desc>
             <Desc name={'Status'}>
                 {groupDetail.status}
-                <Button style={{marginLeft: 30}}>Pause</Button>
+                <Button style={{marginLeft: 30}} variant='tertiary' size='sm'
+                    onClick={() =>
+                        (groupDetail.status == 'Running') ? 
+                            pueueManager.pueue('pause', {group}) :
+                            pueueManager.pueue('start', {group})
+                    }
+                >
+                    {groupDetail.status == 'Running' ? 'Pause' : 'Resume'}
+                </Button>
             </Desc>
             <Desc name={'Parallel Tasks'}>
                 <TextInputGroup>
@@ -292,14 +294,13 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
             </Desc>
             <Desc name={'Working Directory'}>
                 <TextInputGroup>
-                    <TextInputGroupMain placeholder={meta.cwd} {...bindForm('dir')}/>
+                    <TextInputGroupMain placeholder={context.cwd} {...bindForm('dir')}/>
                     <TextInputGroupUtilities>
                         <Button variant='plain' onClick={() => {
-                                const newMeta = structuredClone(meta);
-                                newMeta.groups[group].dir = form.dir;
-                                pueueManager.pueue_webui_meta(newMeta);
+                                context.groups[group].dir = form.dir;
+                                context.storeMeta();
                             }}
-                        ><ArrowRightIcon/> Apply to Group</Button>
+                        ><Text component='small'>Apply to Group</Text> <ArrowRightIcon/></Button>
                     </TextInputGroupUtilities>
                 </TextInputGroup>
             </Desc>
@@ -331,7 +332,7 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
                                     after: form.deps  ? form.deps.split(',') : [],
                                     delay: form.delay ? form.delay : null,
                                     group: group,
-                                    working_directory: form.dir ? form.dir : meta.cwd,
+                                    working_directory: form.dir || context.cwd,
                                 }, [form.command])
                             }>
                                 <PlusCircleIcon/>
@@ -362,28 +363,45 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
 
 const PueuePage = () => {
     const [ currentGroup, setCurrentGroup ] = React.useState<string>('default');
-    const [ groups, setGroups ] = React.useState<any>({});
-    const [ meta, setMeta ] = React.useState<any>({cwd: '', groups: {}});
+    const [ groups, setGroups ] = React.useState<{[id : string] : PueueGroup}>({});
+    const [ tasks, setTasks ] = React.useState<{[id : string] : PueueTask}>({});
+    const [ meta, setMeta ] = React.useState<PueueMeta>({cwd: ''});
 
-    React.useEffect(() => {
+
+    const currentContext = new PueueContext();
+    currentContext.tasks = structuredClone(tasks);
+    currentContext.groups = structuredClone(groups);
+    currentContext.cwd = meta.cwd;
+
+    currentContext.updateStatus = () => {
         Promise.all([
             pueueManager.pueue_webui_meta(),
-            pueueManager.pueue('group', { json: true })
-        ]).then(([metaData, groupData]) => {
-            // tidy meta data
-            metaData.cwd = metaData.cwd || '';
-            metaData.groups = metaData.groups || {};
+            pueueManager.pueue('status', { json: true, group: currentGroup })
+        ]).then(([metaData, statusData]) => {
+            Object.keys(statusData.groups).forEach((k) => {
+                statusData.groups[k].dir = metaData.groups && metaData.groups[k] && metaData.groups[k].dir ? metaData.groups[k].dir : '';
+            });
 
-            for (const g in groupData)
-                metaData.groups[g] = metaData.groups[g] || {};
-            for (const g in metaData.groups)
-                if (!(g in groupData))
-                    delete metaData.groups[g];
-
-            setMeta(metaData);
-            setGroups(groupData);
+            setMeta({cwd: metaData.cwd || ''});
+            setGroups(statusData.groups);
+            setTasks(statusData.tasks);
         });
+    };
+
+    const updateStatusDelayed = async () => { await timeout(100); currentContext.updateStatus(); };
+
+    React.useEffect(() => {
+        currentContext.updateStatus();
+        pueueManager.observer.addEventListener('onStatusUpdated', updateStatusDelayed);
+
+        return () => {
+            pueueManager.observer.removeEventListener('onStatusUpdated', updateStatusDelayed);
+        }
     }, []);
+
+    React.useEffect(() => {
+        currentContext.updateStatus();
+    }, [currentGroup]);
 
     const groupTabs = Object.keys(groups).map((group) => (
         <Tab
@@ -391,18 +409,20 @@ const PueuePage = () => {
             eventKey={group}
             title={group}
         >
-            { currentGroup == group ? <PueueGroupTable group={group} groupDetail={groups[group]} meta={meta}/> : <></> }
+            { currentGroup == group ? <PueueGroupTable group={group}/> : <></> }
         </Tab>
     ));
 
     return (
     <Card>
         <CardBody>
-            <Tabs
-                isBox
-                activeKey={currentGroup}
-                onSelect={(_, k) => setCurrentGroup(k as string)}
-            >{groupTabs}</Tabs>
+            <PueueContextProvider value={currentContext}>
+                <Tabs
+                    isBox
+                    activeKey={currentGroup}
+                    onSelect={(_, k) => setCurrentGroup(k as string)}
+                >{groupTabs}</Tabs>
+            </PueueContextProvider>
         </CardBody>
     </Card>
     );

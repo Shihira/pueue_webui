@@ -3,7 +3,7 @@
 }
 
 .log-view {
-    overflow: scroll;
+    overflow: auto;
     max-height: 500px;
     background-color: #333;
     color: #fff;
@@ -15,7 +15,7 @@
 }
 
 .envs-view {
-    overflow: scroll;
+    overflow: auto;
     max-height: 250px;
     padding: 10px;
 }

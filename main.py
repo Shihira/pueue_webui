@@ -197,12 +197,10 @@ class StatusUpdatedHandler(watchdog.events.FileSystemEventHandler):
 
 def stdio_main():
     observer = None
-    if platform.system() == "Windows":
-        import watchdog.observers.polling
-        observer = watchdog.observers.polling.PollingObserver()
-    else:
-        import watchdog.observers
-        observer = watchdog.observers.Observer()
+    import watchdog.observers.polling
+    observer = watchdog.observers.polling.PollingObserver()
+    #import watchdog.observers
+    #observer = watchdog.observers.Observer()
 
     observer.start()
     observer.schedule(StatusUpdatedHandler(), str(status_path), recursive=False)
