@@ -39,6 +39,13 @@ export const UpdateDepots = () => {
         pueueManager.run_local_command_async(cmdArgs);
     };
 
+    const get_history = async () => {
+        pueueManager.pueue('add', {
+            label: 'get_history',
+            working_directory: 'C:/Users/clairfeng/dotfiles/mac/scripts', 
+        }, [`python update_depots.py entry --pipeline-name ${conf.active_config.pipeline_name} task_get_history ${conf.active_config.specified_cl}`]);
+    };
+
     React.useEffect(() => {
         updateForm();
     }, []);
@@ -83,7 +90,10 @@ export const UpdateDepots = () => {
                     <Checkbox label={'Install to Device'} {...confBinding('install', 'isChecked')}/>
                 </FormGroup>
             </Form>
-            <Button onClick={go}>Go!</Button>
+            <div style={{marginTop: 30}}>
+                <Button onClick={get_history} style={{marginRight: 10}}>Get History</Button>
+                <Button onClick={go}>Go!</Button>
+            </div>
         </CardBody>
     </Card>
     );

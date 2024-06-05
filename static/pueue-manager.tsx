@@ -77,6 +77,10 @@ export class PueueManager {
         return this.call_rpc('pueue_webui_meta', [data]);
     };
 
+    pueue_edit(id : string, kvs: any) : Promise<any> {
+        return this.call_rpc('pueue_edit', [id, kvs]);
+    };
+
     run_local_command_async(cmd : string[]) : Promise<any> {
         return this.call_rpc('run_local_command_async', [cmd]);
     };

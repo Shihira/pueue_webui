@@ -82,6 +82,29 @@ def pueue_webui_meta(data=None):
         config_path.write_text(json.dumps(data))
         return True
 
+@jsonrpc_method
+def pueue_edit(id, kvs):
+    import tempfile
+    f = tempfile.NamedTemporaryFile(suffix='pueue_webui', delete=False)
+    fpath = pathlib.Path(f.name)
+    f.close()
+
+    edit_procs = ''
+
+    for k, v in kvs.items():
+        fpath.write_text('import pathlib\nimport sys\npathlib.Path(sys.argv[1]).write_text(%s)' % repr(v))
+        edit = PueueController(['pueue', 'edit'])
+        proc = edit(id, __controller_env_override={'EDITOR': f'{sys.executable} {fpath}'}, **{k: True})
+        if proc.returncode == 0:
+            edit_procs += f'{k}: {proc.result}\n'
+        else:
+            raise PueueError(proc.returncode, proc.stdout + proc.stderr)
+
+    fpath.unlink()
+
+    return edit_procs
+
+
 class LogUpdatedHandler(watchdog.events.FileSystemEventHandler):
     def __init__(self):
         self.last_call = 0

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import os
 import subprocess
 
 class PueueError(Exception):
@@ -13,6 +14,7 @@ class PueueController:
         self.remove_envs = False
         self.remove_trailing_line_feed = True
         self.timeout = None
+        self.env_override = {}
 
     def __getattr__(self, subcommand):
         return PueueController(self.commands + [subcommand])
@@ -47,7 +49,10 @@ class PueueController:
             for a in args:
                 cmd_args += [str(a)]
 
-        proc = subprocess.run(cmd_args, capture_output=True, encoding='utf-8', stdin=subprocess.DEVNULL, timeout=self.timeout)
+        envs = os.environ.copy()
+        envs.update(self.env_override)
+
+        proc = subprocess.run(cmd_args, capture_output=True, encoding='utf-8', stdin=subprocess.DEVNULL, timeout=self.timeout, env=envs)
 
         # post processing
         if proc.returncode == 0:

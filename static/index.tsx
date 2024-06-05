@@ -24,7 +24,7 @@ import {
     TextVariants,
 } from '@patternfly/react-core';
 
-import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon, CheckIcon } from '@patternfly/react-icons';
+import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon, ArrowRightIcon } from '@patternfly/react-icons';
 import { pueueManager, PueueMessageEvent } from './pueue-manager';
 import { UpdateDepots } from './update-depots';
 
@@ -162,11 +162,11 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
     useEffect(() => { constructor(); return destructor }, []);
 
     const unfoldStatus = (s : any) => {
-        if (typeof s == "object") {
+        if (s && typeof s == "object") {
             const key = Object.keys(s)[0];
             return key == 'Done' ? unfoldStatus(s[key]) : [key, ...unfoldStatus(s[key])];
         }
-        else return [(s as string)];
+        else return [String(s)];
     };
 
     const getLabel = (id : string) => {
@@ -197,7 +197,7 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
                 <Td colSpan={5}>
                     <ExpandableRowContent>
                         <DescriptionList isHorizontal termWidth='20ch' isCompact>
-                            <Desc name={'Status'}>{unfoldStatus(task.status)}</Desc>
+                            <Desc name={'Status'}>{unfoldStatus(task.status).join(' ')}</Desc>
                             <Desc name={'Working Directory'}>{task.path}</Desc>
                             <Desc name={'Environments'}><div className='envs-view'>
                                 <pre>
@@ -233,7 +233,15 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
                     <Button variant='plain' onClick={()=>pueueManager.pueue('kill', {}, [id])}><TimesIcon/></Button>
                     <Button variant='plain' onClick={()=>pueueManager.pueue('remove', {}, [id])}><TrashIcon/></Button>
                     <Button variant='plain' onClick={()=>pueueManager.pueue('restart', {in_place: true}, [id])}><RedoIcon/></Button>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('restart', {not_in_place: true}, [id])}><CopyIcon/></Button>
+                    <Button variant='plain' onClick={()=>setForm({
+                            label: task.label + '#' + task.id,
+                            command: task.command,
+                            deps: task.dependencies.join(','),
+                            delay: "",
+                            parallel: form.parallel,
+                            dir: task.path,
+                        })}
+                    ><CopyIcon/></Button>
                 </Td>
             </Tr>
         );
@@ -260,6 +268,8 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
     });
     const bindForm = textInputBinder.bind(null, form, setForm);
 
+    const taskIdInplace = form.label.indexOf('#') >= 0 ? form.label.split('#')[1] : '';
+
     return (
     <Card>
     <CardBody>
@@ -276,7 +286,7 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
                         <Button variant='plain' onClick={() => {
                                 pueueManager.pueue('parallel', {group}, [form.parallel]);
                             }}
-                        ><CheckIcon/></Button>
+                        ><ArrowRightIcon/></Button>
                     </TextInputGroupUtilities>
                 </TextInputGroup>
             </Desc>
@@ -289,7 +299,7 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
                                 newMeta.groups[group].dir = form.dir;
                                 pueueManager.pueue_webui_meta(newMeta);
                             }}
-                        ><CheckIcon/></Button>
+                        ><ArrowRightIcon/> Apply to Group</Button>
                     </TextInputGroupUtilities>
                 </TextInputGroup>
             </Desc>
@@ -313,20 +323,35 @@ const PueueGroupTable = ({ group, groupDetail, meta } : { group : string, groupD
                     <Td></Td>
                     <Td><TextInput placeholder='Label' {...bindForm('label')}/></Td>
                     <Td><TextInput placeholder='Command' {...bindForm('command')}/></Td>
-                    <Td><TextInput placeholder='Dependencies' {...bindForm('deps')}/></Td>
+                    <Td><TextInput placeholder='Dependencies' {...bindForm('deps')} isDisabled={taskIdInplace}/></Td>
                     <Td><TextInput placeholder='Delay (e.g. 15s, 1d)' {...bindForm('delay')}/></Td>
-                    <Td>
-                        <Button variant='plain' onClick={()=>pueueManager.pueue('add', {
-                                label: form.label ? form.label : null,
-                                after: form.deps  ? form.deps.split(',') : [],
-                                delay: form.delay ? form.delay : null,
-                                group: group,
-                                working_directory: form.dir ? form.dir : meta.cwd,
-                            }, [form.command])
-                        }>
-                            <PlusCircleIcon/>
-                        </Button>
-                    </Td>
+                    <Td>{!taskIdInplace ? (
+                            <Button variant='plain' onClick={()=>pueueManager.pueue('add', {
+                                    label: form.label ? form.label : null,
+                                    after: form.deps  ? form.deps.split(',') : [],
+                                    delay: form.delay ? form.delay : null,
+                                    group: group,
+                                    working_directory: form.dir ? form.dir : meta.cwd,
+                                }, [form.command])
+                            }>
+                                <PlusCircleIcon/>
+                            </Button>
+                            ): (
+                            <Button variant='plain' onClick={async ()=> {
+                                    const taskId = form.label.split('#')[1];
+                                    await pueueManager.pueue('restart', {in_place: true, stashed: true}, [taskId]);
+                                    await pueueManager.pueue_edit(taskId, {
+                                            'command': form.command,
+                                            'path': form.dir,
+                                            'label': form.label.split('#')[0]
+                                        });
+                                    await pueueManager.pueue('enqueue', form.delay ? {delay: form.delay} : {}, [taskId]);
+                                }}
+                            >
+                                <RedoIcon/>
+                            </Button>
+                            )
+                    }</Td>
                 </Tr>
             </Tbody>
         </Table>
