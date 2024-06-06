@@ -2,9 +2,14 @@
     --pf-v5-c-form-control--BackgroundColor: transparent;
 }
 
+.pf-v5-theme-dark body {
+    background-color: #222;
+}
+
 .log-view {
     overflow: auto;
     max-height: 500px;
+    min-height: 100px;
     background-color: #333;
     color: #fff;
     padding: 10px;

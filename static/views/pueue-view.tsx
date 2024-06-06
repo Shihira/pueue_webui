@@ -15,6 +15,7 @@ import {
     DescriptionListGroup,
     DescriptionListTerm,
     Label,
+    Switch,
     Tab,
     Tabs,
     Text,
@@ -73,7 +74,7 @@ const LogView = ({id}) => {
 
     return (
         <div ref={elemRef} className='log-view'>
-            <pre>{log}</pre>
+            <pre>{log || '(This log is empty)'}</pre>
         </div>
     );
 };
@@ -337,7 +338,7 @@ export const PueueView = ({ children } : { children : React.ReactNode }) => {
     const [ tasks, setTasks ] = React.useState<{[id : string] : PueueTask}>({});
     const [ meta, setMeta ] = React.useState<PueueMeta>({cwd: ''});
     const [ alerts, setAlerts ] = React.useState<{[id : string] : { id: number, title: string, body: string, variant: string }}>({counter: { id: 0, title: '', body: '', variant: ''}});
-
+    const [ dark, setDark ] = React.useState<boolean>(true);
 
     const currentContext = new PueueContext();
     currentContext.tasks = structuredClone(tasks);
@@ -407,6 +408,10 @@ export const PueueView = ({ children } : { children : React.ReactNode }) => {
         currentContext.updateStatus();
     }, [currentGroup]);
 
+    React.useEffect(() => {
+        document.documentElement.className = dark ? 'pf-v5-theme-dark' : '';
+    }, [dark]);
+
     const groupTabs = Object.keys(groups).map((group) => (
         <Tab key={group} eventKey={group} title={group}>
             { currentGroup == group ? <PueueGroupTable group={group}/> : <></> }
@@ -418,6 +423,9 @@ export const PueueView = ({ children } : { children : React.ReactNode }) => {
         {children}
         <Card key='main-view'>
             <CardBody>
+                <div style={{textAlign: 'right'}}>
+                    <Switch id='dark_mode' label='Dark Mode' labelOff='Light Mode' isChecked={dark} isReversed onChange={(_, b)=>setDark(b)} />
+                </div>
                 <Tabs
                     isBox
                     activeKey={currentGroup}

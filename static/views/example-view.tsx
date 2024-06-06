@@ -32,6 +32,8 @@ const ExampleView = () => {
                         const task3 = await add({label: 'task3', after: [task1, task2]}, 'sleep 6 ; echo task3');
                         const task4 = await add({label: 'task4', after: [task1, task2]}, 'sleep 2 ; echo task4');
                         const task5 = await add({label: 'task5', after: [task3, task4]}, 'sleep 5 ; echo task5');
+                        const fail6 = await add({label: 'fail6', after: [task3, task4]}, 'sleep 2 ; false');
+                        const fail7 = await add({label: 'fail7', after: [task5, fail6]}, 'sleep 2 ; echo fail7');
 
                         context.addAlert('Tasks added');
                     }}

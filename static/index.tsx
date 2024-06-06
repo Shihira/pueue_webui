@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
         e = document.getElementById('main-views');
         e && createRoot(e).render(
             <PueueView>
-                {viewsSorted.map((x) => x.view)}
+                {viewsSorted.map((x) => <>{x.view}<br/></>)}
             </PueueView>
         );
     });

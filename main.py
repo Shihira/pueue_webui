@@ -7,7 +7,6 @@ import watchdog.events
 import threading
 import pathlib
 import platform
-import contextlib
 
 from pueue_controller import PueueController, PueueError
 from typing import Dict
@@ -20,11 +19,19 @@ print_lock = threading.Lock()
 log_subscriber_lock = threading.Lock()
 
 if platform.system() == "Windows":
-    status_path = pathlib.Path(os.environ['LOCALAPPDATA']) / 'pueue'
-    logs_path = pathlib.Path(os.environ['LOCALAPPDATA']) / 'pueue/task_logs'
+    if 'LOCALAPPDATA' in os.environ:
+        pueue_path = pathlib.Path(os.environ['LOCALAPPDATA']) / 'pueue'
+    else:
+        pueue_path = pathlib.Path.home() / 'AppData/Local' / 'pueue'
 elif platform.system() == "Darwin":
-    status_path = pathlib.Path.home() / 'Library/Application Support/pueue/task_logs'
-    logs_path = pathlib.Path.home() / 'Library/Application Support/pueue/task_logs'
+    pueue_path = pathlib.Path.home() / 'Library/Application Support' / 'pueue'
+elif platform.system() == "Linux":
+    if 'XDG_DATA_HOME' in os.environ:
+        pueue_path = pathlib.Path(os.environ['XDG_DATA_HOME']) / 'pueue'
+    else:
+        pueue_path = pathlib.Path.home() / '.local/share' / 'pueue'
+
+logs_path = pueue_path / 'task_logs'
 
 def jsonrpc_method(method):
     global jsonrpc_methods
@@ -69,7 +76,7 @@ def run_local_command_async(_id, commands):
 
 @jsonrpc_method
 def pueue_webui_meta(data=None):
-    config_path = status_path / 'pueue_webui.json'
+    config_path = pueue_path / 'pueue_webui.json'
     if not config_path.exists():
         config_path.write_text('{}')
     if data is None:
@@ -206,7 +213,7 @@ def stdio_main():
     #observer = watchdog.observers.Observer()
 
     observer.start()
-    observer.schedule(StatusUpdatedHandler(), str(status_path), recursive=False)
+    observer.schedule(StatusUpdatedHandler(), str(pueue_path), recursive=False)
     observer.schedule(LogUpdatedHandler(), str(logs_path), recursive=False)
 
     while True:
@@ -230,7 +237,7 @@ def stdio_main():
         except PueueError as e:
             jsonrpc_response({
                 'error': { 'code': 32001, 'message': f'PueueError({e.args[0]})', 'data': str(e.args[1]) },
-                'id': request['id']
+                'id': request['id'] if 'id' in request else None
             })
         except EOFError:
             break
@@ -240,22 +247,38 @@ def stdio_main():
             import traceback
             jsonrpc_response({
                 'error': { 'code': 32600, 'message': type(e).__name__, 'data': traceback.format_exc() },
-                'id': request['id'] if id in request else None
+                'id': request['id'] if 'id' in request else None
             })
 
     observer.stop()
 
+def ws_main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--host', action='store', default='localhost', type=str)
+    parser.add_argument('--port', action='store', default='9092', type=str)
+    args = parser.parse_args(sys.argv[1:])
+
+    import shutil
+
+    for exe in ['websocketd', 'pueue']:
+        websocketd = shutil.which(exe)
+        if not websocketd:
+            print(f'pueue_webui requires {exe} that is not found in PATH, you might have to install it with your package manager first.', file=sys.stderr)
+            exit(1)
+
+    cwd = os.path.abspath(os.path.dirname(__file__))
+    subprocess.run(['websocketd',
+                    '--staticdir=' + cwd + '/static',
+                    '--port=' + args.port, '--address=' + args.host,
+                    '--passenv', ','.join(list(os.environ.keys())),
+                    sys.executable, os.path.abspath(__file__), '--stdio'
+                    ])
 
 if __name__ == "__main__":
-    if '--ws' in sys.argv:
-        cwd = os.path.abspath(os.path.dirname(__file__))
-        subprocess.run(['websocketd',
-                        '--staticdir=' + cwd + '/static',
-                        '--port=9092', '--address=localhost',
-                        '--passenv', ','.join(list(os.environ.keys())),
-                        sys.executable, os.path.abspath(__file__)
-                        ])
-    else:
+    if '--stdio' in sys.argv:
         stdio_main()
+    else:
+        ws_main()
 
 
