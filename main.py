@@ -80,7 +80,7 @@ def pueue_webui_meta(data=None):
         return conf
     else:
         config_path.write_text(json.dumps(data))
-        return True
+        return 'Meta stored'
 
 @jsonrpc_method
 def pueue_edit(id, kvs):
@@ -92,6 +92,9 @@ def pueue_edit(id, kvs):
     edit_procs = ''
 
     for k, v in kvs.items():
+        if not v:
+            continue
+
         fpath.write_text('import pathlib\nimport sys\npathlib.Path(sys.argv[1]).write_text(%s)' % repr(v))
         edit = PueueController(['pueue', 'edit'])
         proc = edit(id, __controller_env_override={'EDITOR': f'{sys.executable} {fpath}'}, **{k: True})

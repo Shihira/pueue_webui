@@ -28,7 +28,7 @@ export class PueueManager {
             console.log('recv', data);
 
             if (data.error !== undefined) {
-                console.log(data.error);
+                this.observer.dispatchEvent(new PueueMessageEvent('onError', data.error));
             }
             else if (data.method !== undefined) {
                 if (data.method.startsWith('on')) {
@@ -46,8 +46,12 @@ export class PueueManager {
                 delete this.callbacks[data.id];
             }
         };
-        this.jsonrpcWebsocket.onclose = (e) => { console.log(e); }
-        this.jsonrpcWebsocket.onerror = (e) => { console.log(e); }
+        this.jsonrpcWebsocket.onclose = (e) => {
+            this.observer.dispatchEvent(new PueueMessageEvent('onError', {message: 'Connection Closed', data: e}));
+        };
+        this.jsonrpcWebsocket.onerror = (e) => {
+            this.observer.dispatchEvent(new PueueMessageEvent('onError', {message: 'Connection Error', data: e}));
+        };
     }
 
     call_rpc(method : string, params: any) : Promise<any> {
