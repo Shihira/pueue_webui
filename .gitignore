@@ -1,3 +1,7 @@
 dist
 node_modules
 __pycache__
+
+static/views/index.tsx
+static/views/update-depots-view.tsx
+
