@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 const views = fs.readdirSync(path.join(path.resolve(), 'views'))
+    .filter((x) => x.endsWith('-view.tsx') && x !== 'pueue-view.tsx')
     .map((x) => path.parse(x).name)
     .filter((x) => x !== 'index');
 const importViews = views.map((x, i) => `import * as view_${i} from './${x}'`);

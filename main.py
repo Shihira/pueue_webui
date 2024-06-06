@@ -230,7 +230,7 @@ def stdio_main():
         except PueueError as e:
             jsonrpc_response({
                 'error': { 'code': 32001, 'message': f'PueueError({e.args[0]})', 'data': str(e.args[1]) },
-                'id': request['id'] if id in request else None
+                'id': request['id']
             })
         except EOFError:
             break

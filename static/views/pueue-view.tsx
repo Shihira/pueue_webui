@@ -27,69 +27,18 @@ import {
 
 import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon, EditIcon, CrossIcon, OffIcon } from '@patternfly/react-icons';
 import { pueueManager, PueueMessageEvent } from '../pueue-manager';
+import {
+    timeout,
+    formatTime,
+    PueueTask,
+    PueueGroup,
+    PueueMeta,
+    PueueContext,
+    pueueContext,
+    PueueContextProvider,
+    textInputBinder,
+} from '../utils';
 
-const timeout = (ms : number) : Promise<any> => {
-    return new Promise((cb) => setTimeout(cb, ms));
-};
-
-const formatTime = (date : Date | null) : string => {
-    if (!date) return '?';
-    return (
-        date.getHours  ().toString().padStart(2, '0') + ':' +
-        date.getMinutes().toString().padStart(2, '0') + ':' +
-        date.getSeconds().toString().padStart(2, '0')
-    );
-}
-
-class PueueTask {
-    id : number = -1;
-    command: string = '';
-    label: string = '';
-    path: string = '';
-    start: string = '';
-    end: string = '';
-    group: string = '';
-    envs: {[name: string] : string} = {};
-    status: any = null;
-    dependencies: string[] = [];
-}
-
-declare class PueueGroup {
-    status: string;
-    parallel_tasks: number;
-    dir : string;
-}
-
-declare class PueueMeta {
-    cwd : string;
-}
-
-class PueueContext {
-    tasks : {[id: string] : PueueTask} = {};
-    groups : {[id: string] : PueueGroup} = {};
-    cwd : string = "";
-
-    updateStatus : ()=>void = ()=>{};
-    addAlert: (body : string, title? : string, variant? : string) => void = ()=>{};
-    removeAlert: (key : string) => void = ()=>{};
-
-    storeMeta() {
-        return pueueManager.pueue_webui_meta({
-            groups: Object.fromEntries(Object.entries(this.groups).map(([k, v]) => [k, {dir: v.dir}])),
-            cwd: this.cwd,
-        });
-    }
-}
-
-const pueueContext = React.createContext<PueueContext>(new PueueContext());
-const PueueContextProvider = pueueContext.Provider;
-//const PueueContextConsumer = pueueContext.Consumer;
-
-const textInputBinder = (state, setState, arg : string) => ({
-    id: arg,
-    value: state[arg],
-    onChange: (_, v) => setState((x) => { const new_x = {...x}; new_x[arg] = v; return new_x; }),
-});
 
 const LogView = ({id}) => {
     const [log, setLog] = React.useState<string>('');
@@ -382,7 +331,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
     );
 };
 
-const PueueView = () => {
+export const PueueView = ({ children } : { children : React.ReactNode }) => {
     const [ currentGroup, setCurrentGroup ] = React.useState<string>('default');
     const [ groups, setGroups ] = React.useState<{[id : string] : PueueGroup}>({});
     const [ tasks, setTasks ] = React.useState<{[id : string] : PueueTask}>({});
@@ -415,7 +364,7 @@ const PueueView = () => {
             const newAlerts = structuredClone(a);
             newAlerts[a.counter.id.toString()] = {
                 id: a.counter.id,
-                title: (title || ''),
+                title: (title || 'Message'),
                 body: (body || ''),
                 variant: (variant || 'info')
             };
@@ -454,6 +403,7 @@ const PueueView = () => {
     });
 
     React.useEffect(() => {
+        setTasks({});
         currentContext.updateStatus();
     }, [currentGroup]);
 
@@ -464,36 +414,29 @@ const PueueView = () => {
     ));
 
     return (
-    <>
-    <Card>
-        <CardBody>
-            <PueueContextProvider value={currentContext}>
+    <PueueContextProvider value={currentContext}>
+        {children}
+        <Card key='main-view'>
+            <CardBody>
                 <Tabs
                     isBox
                     activeKey={currentGroup}
                     onSelect={(_, k) => setCurrentGroup(k as string)}
                 >{groupTabs}</Tabs>
-            </PueueContextProvider>
-        </CardBody>
-    </Card>
-    <AlertGroup isToast>
-    {
-        Object.entries(alerts).map(([key, x]) => key == 'counter' ?
-            <></> :
-            <Alert key={key} variant={x.variant as any} title={x.title} timeout={5000}
-                style={{whiteSpace: 'pre-wrap'}}
-                onTimeout={currentContext.removeAlert.bind(null, key)}
-                actionClose={<AlertActionCloseButton onClose={currentContext.removeAlert.bind(null, key)}/>}
-            >{x.body}</Alert>)
-    }
-    </AlertGroup>
-    </>
+            </CardBody>
+        </Card>
+        <AlertGroup isToast key='alerts'>
+        {
+            Object.entries(alerts).map(([key, x]) => key == 'counter' ?
+                <></> :
+                <Alert key={key} variant={x.variant as any} title={x.title} timeout={5000}
+                    style={{whiteSpace: 'pre-wrap'}}
+                    onTimeout={currentContext.removeAlert.bind(null, key)}
+                    actionClose={<AlertActionCloseButton onClose={currentContext.removeAlert.bind(null, key)}/>}
+                >{x.body}</Alert>)
+        }
+        </AlertGroup>
+    </PueueContextProvider>
     );
 };
-
-export const exportedView = {
-    priority: 255,
-    view: <PueueView key='pueue-view'/>
-};
-
 

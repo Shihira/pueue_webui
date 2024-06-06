@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { pueueManager } from './pueue-manager';
+import { PueueView } from './views/pueue-view';
 import { views } from './views';
 
 
@@ -18,9 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         e = document.getElementById('main-views');
         e && createRoot(e).render(
-            <>
-            {viewsSorted.map((x) => x.view)}
-            </>
+            <PueueView>
+                {viewsSorted.map((x) => x.view)}
+            </PueueView>
         );
     });
 });
