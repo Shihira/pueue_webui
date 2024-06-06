@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import {
     Button,
     Card,
@@ -12,14 +12,10 @@ import {
     TextInput,
 } from '@patternfly/react-core';
 
-import { pueueManager } from './pueue-manager';
+import { pueueManager } from '../pueue-manager';
 
-import "@patternfly/patternfly/patternfly";
-import "@patternfly/patternfly/patternfly-theme-dark";
-import "./styles"
-
-export const UpdateDepots = () => {
-    const [ conf, setConf ] = useState<any>({projects: [], active_config: {}});
+const UpdateDepots = () => {
+    const [ conf, setConf ] = React.useState<any>({projects: [], active_config: {}});
 
     const updateForm = async (pipelineName : string = "") => {
         const get_config = await pueueManager.run_local_command_async(
@@ -99,3 +95,7 @@ export const UpdateDepots = () => {
     );
 };
 
+export const exportedView = {
+    priority: 1,
+    view: <UpdateDepots key='update-depots'/>
+};
