@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import json
 import time
 import os
@@ -13,7 +15,7 @@ from typing import Dict
 
 jsonrpc_methods = {}
 
-log_subscriber : Dict[str, int] = {}
+log_subscriber: Dict[str, int] = {}
 
 print_lock = threading.Lock()
 log_subscriber_lock = threading.Lock()

@@ -88,6 +88,29 @@ const Desc = (kv : any) => {
     );
 };
 
+import styles from '@patternfly/react-styles/css/components/FormControl/form-control';
+import { css } from '@patternfly/react-styles';
+
+const TextArea = (prop: any) => {
+    const ref = React.useRef<HTMLTextAreaElement | null>(null);
+    React.useEffect(() => {
+        ref.current?.style.setProperty('height', '0');
+        ref.current?.style.setProperty('height', (ref.current?.scrollHeight + 1) + 'px');
+    }, []);
+
+    const handleChange = (e) => {
+        ref.current?.style.setProperty('height', '0');
+        ref.current?.style.setProperty('height', (ref.current?.scrollHeight + 1) + 'px');
+        prop.onChange(e, e.currentTarget.value);
+    };
+
+    return (
+    <span className={css(styles.formControl)}>
+        <textarea onChange={handleChange} placeholder={prop.placeholder} value={prop.value} ref={ref} style={{fontFamily: 'monospace', resize: 'vertical'}} />
+    </span>
+    );
+};
+
 const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
     const [ isExpanded, setIsExapnded ] = React.useState<boolean>(false);
     const [ isEditable, setIsEditable ] = React.useState<boolean>(false);
@@ -206,7 +229,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
 
                 <>
                 <Td><TextInput placeholder='Label' {...bindForm('label')}/></Td>
-                <Td><TextInput placeholder='Command' {...bindForm('command')}/></Td>
+                <Td><TextArea placeholder='Command' {...bindForm('command')} autoReize/></Td>
                 <Td><TextInput placeholder='Dependencies' {...bindForm('deps')}/></Td>
                 <Td><TextInput placeholder='Delay (e.g. 15s, 1d)' {...bindForm('delay')}/></Td>
                 <Td>
@@ -240,7 +263,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
                         >
                             <RedoIcon/>
                         </Button>
-                        <Button variant='plain' onClick={()=>setIsEditable(false)}><OffIcon/></Button>
+                        <Button variant='plain' onClick={()=>setIsEditable(false)}><EditIcon/></Button>
                         </> :
                         <></>
                     }
@@ -319,7 +342,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
                 <Tr>
                     <Th aria-label="expand"></Th>
                     <Th width={10}>Label</Th>
-                    <Th width={30}>Command</Th>
+                    <Th width={40}>Command</Th>
                     <Th width={10}>Dependencies</Th>
                     <Th width={10}>Timing (<Text component={TextVariants.a}>Show Date</Text>)</Th>
                     <Th width={10} aria-label="actions"></Th>

@@ -1,5 +1,6 @@
 .text-input-with-proper-background .pf-v5-c-form-control {
     --pf-v5-c-form-control--BackgroundColor: transparent;
+    font-size: 0.9em;
 }
 
 .pf-v5-theme-dark body {
@@ -16,7 +17,7 @@
 }
 
 .log-view pre {
-    font-size: 0.8em;
+    font-size: small;
 }
 
 .envs-view {
