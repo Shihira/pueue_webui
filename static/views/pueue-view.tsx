@@ -51,7 +51,9 @@ const LogView = ({id}) => {
             console.log(data[0], id);
             return;
         }
-        setLog((l) => l + data[3]);
+        // data post processing for better visualization
+        const log_data = data[3].replace(/[\r\n]+/g, '\n'); // normalize all line breaks
+        setLog((l) => l + log_data);
     };
 
     React.useEffect(() => {
@@ -153,6 +155,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
             status.indexOf('Success') >= 0 ? 'green' :
             status.indexOf('Running') >= 0 ? 'blue' :
             status.indexOf('Failed') >= 0 ? 'red' :
+            status.indexOf('Killed') >= 0 ? 'red' :
             status.indexOf('DependencyFailed') >= 0 ? 'red' :
             'grey');
 
@@ -301,7 +304,9 @@ const PueueGroupTable = ({ group } : { group : string }) => {
             <Desc name={'Group Name'}>{group}</Desc>
             <Desc name={'Status'}>
                 {groupDetail.status}
-                <Button style={{marginLeft: 30}} variant='tertiary' size='sm'
+            </Desc>
+            <Desc name={'Opeartions'}>
+                <Button variant='tertiary' size='sm'
                     onClick={() =>
                         (groupDetail.status == 'Running') ? 
                             pueueManager.pueue('pause', {group}).then(alertDone).then(context.updateStatus) :
@@ -309,7 +314,13 @@ const PueueGroupTable = ({ group } : { group : string }) => {
                     }
                 >
                     {groupDetail.status == 'Running' ? 'Pause' : 'Resume'}
-                </Button>
+                </Button>{' '}
+                <Button variant='tertiary' size='sm'
+                    onClick={() => pueueManager.pueue('clean', {group}).then(alertDone)}
+                >Clean</Button>{' '}
+                <Button variant='tertiary' size='sm'
+                    onClick={() => pueueManager.pueue(['group', 'delete'], {}, [group]).then(alertDone)}
+                >Delete</Button>
             </Desc>
             <Desc name={'Parallel Tasks'}>
                 <TextInputGroup>

@@ -1,4 +1,3 @@
-
 export class PueueMessageEvent extends Event {
     data : any;
     constructor(eventName : string, inData : any) {
@@ -7,54 +6,66 @@ export class PueueMessageEvent extends Event {
     }
 }
 
-export class PueueManager {
-    idCounter : number;
-    jsonrpcWebsocket : WebSocket;
-    callbacks : object;
-    observer : EventTarget;
+export declare class Connection {
+    onRecv: (h : (data: any)=>void) => void;
+    onClose: (h : (data: any)=>void) => void;
+    onError: (h : (data: any)=>void) => void;
+    send: (data:any) => void;
+}
 
-    send(data : any) {
-        console.log('send', data);
-        this.jsonrpcWebsocket.send(JSON.stringify(data));
+export class PueueManager {
+    idCounter : number = 1000;
+    callbacks : object = {};
+    observer : EventTarget = new EventTarget();
+
+    connection : Connection;
+
+    onClose(data : any) {
+        this.observer.dispatchEvent(new PueueMessageEvent('onError', {message: 'Connection Closed', data: data}));
     }
 
-    constructor() {
-        this.idCounter = 1000;
-        this.callbacks = {};
-        this.observer = new EventTarget();
-        this.jsonrpcWebsocket = new WebSocket('ws://' + window.location.host);
-        this.jsonrpcWebsocket.onmessage = (e) => {
-            const data = JSON.parse(e.data);
-            console.log('recv', data);
+    onError(data : any) {
+        this.observer.dispatchEvent(new PueueMessageEvent('onError', {message: 'Connection Error', data: data}));
+    }
 
-            if (data.method !== undefined) {
-                if (data.method.startsWith('on')) {
-                    this.observer.dispatchEvent(new PueueMessageEvent(data.method, data.params));
-                }
+    onRecv(raw_data : any) {
+        var data : any = {};
+        try {
+            data = JSON.parse(raw_data);
+            console.log('recv', data);
+        } catch(e) {
+            console.log('recv', raw_data);
+            return;
+        }
+
+        if (data.method !== undefined) {
+            if (data.method.startsWith('on')) {
+                this.observer.dispatchEvent(new PueueMessageEvent(data.method, data.params));
+            }
+        }
+        else {
+            if (data.error !== undefined) {
+                this.observer.dispatchEvent(new PueueMessageEvent('onError', data.error));
+            }
+
+            if (data.id !== undefined && data.id in this.callbacks) {
+                this.callbacks[data.id](data.result);
             }
             else {
-                if (data.error !== undefined) {
-                    this.observer.dispatchEvent(new PueueMessageEvent('onError', data.error));
-                }
-
-                if (data.id !== undefined && data.id in this.callbacks) {
-                    this.callbacks[data.id](data.result);
-                }
-                else {
-                    console.log('not handled');
-                }
-
-                if (data.id !== undefined && data.id in this.callbacks) {
-                    delete this.callbacks[data.id];
-                }
+                console.log('not handled');
             }
-        };
-        this.jsonrpcWebsocket.onclose = (e) => {
-            this.observer.dispatchEvent(new PueueMessageEvent('onError', {message: 'Connection Closed', data: e}));
-        };
-        this.jsonrpcWebsocket.onerror = (e) => {
-            this.observer.dispatchEvent(new PueueMessageEvent('onError', {message: 'Connection Error', data: e}));
-        };
+
+            if (data.id !== undefined && data.id in this.callbacks) {
+                delete this.callbacks[data.id];
+            }
+        }
+    }
+
+    async connect(connectionEstablisher : Promise<Connection>) {
+        this.connection = await connectionEstablisher;
+        this.connection.onRecv(this.onRecv.bind(this));
+        this.connection.onClose(this.onClose.bind(this));
+        this.connection.onError(this.onError.bind(this));
     }
 
     call_rpc(method : string, params: any) : Promise<any> {
@@ -62,7 +73,7 @@ export class PueueManager {
         return new Promise((cb) => {
             const id = self.idCounter
             self.idCounter += 1;
-            self.send({
+            self.connection.send({
                 jsonrpc: '2.0',
                 id: id,
                 method,
@@ -95,3 +106,37 @@ export class PueueManager {
 
 export const pueueManager = new PueueManager();
 
+export function establishWebsocket(url) : Promise<Connection> {
+    return new Promise((cb) => {
+        const jsonrpcWebsocket = new WebSocket(url);
+        jsonrpcWebsocket.addEventListener('open', () => {
+            cb({
+                onRecv: (h) => { jsonrpcWebsocket.onmessage = h; },
+                onClose: (h) => { jsonrpcWebsocket.onclose = h; },
+                onError: (h) => { jsonrpcWebsocket.onerror = h; },
+                send: (data) => {
+                    console.log('send', data);
+                    jsonrpcWebsocket.send(JSON.stringify(data));
+                }
+            });
+        });
+    });
+};
+
+export async function establishCockpitChannel(cockpit : any) : Promise<Connection> {
+    const user = await cockpit.user();
+    const processChannel = cockpit.spawn(
+        ["python3", "/usr/share/cockpit/utilities/scripts/pueue_main.py", "--stdio"], 
+        { directory: user.home });
+    return {
+        onRecv: (h) => { processChannel.stream((raw_data : string) => {
+            raw_data.split('\n').filter((x) => x.trim().length !== 0).forEach(h); });
+        },
+        onClose: (h) => { processChannel.then(h); },
+        onError: (h) => { processChannel.catch(h); },
+        send: (data) => {
+            console.log('send', data);
+            processChannel.input(JSON.stringify(data) + "\n", true);
+        }
+    };
+};
