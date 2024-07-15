@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     e = document.getElementById('main-views');
     e && createRoot(e).render(
-        <PueueView>
+        <PueueView followGlobalDark={false}>
             {viewsSorted.map((x) => <>{x.view}<br/></>)}
         </PueueView>
     );

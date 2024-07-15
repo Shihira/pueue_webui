@@ -111,7 +111,7 @@ export function establishWebsocket(url) : Promise<Connection> {
         const jsonrpcWebsocket = new WebSocket(url);
         jsonrpcWebsocket.addEventListener('open', () => {
             cb({
-                onRecv: (h) => { jsonrpcWebsocket.onmessage = h; },
+                onRecv: (h) => { jsonrpcWebsocket.onmessage = (e) => h(e.data); },
                 onClose: (h) => { jsonrpcWebsocket.onclose = h; },
                 onError: (h) => { jsonrpcWebsocket.onerror = h; },
                 send: (data) => {

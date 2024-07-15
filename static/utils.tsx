@@ -41,6 +41,7 @@ export class PueueContext {
     tasks : {[id: string] : PueueTask} = {};
     groups : {[id: string] : PueueGroup} = {};
     cwd : string = "";
+    sm : boolean = false;
 
     updateStatus : ()=>void = ()=>{};
     addAlert: (body : string, title? : string, variant? : string) => void = ()=>{};
@@ -61,6 +62,7 @@ export const PueueContextProvider = pueueContext.Provider;
 export const getContext = () => React.useContext(pueueContext);
 
 export const textInputBinder = (state, setState, arg : string) => ({
+    key: arg,
     id: arg,
     value: state[arg],
     onChange: (_, v) => setState((x) => { const new_x = {...x}; new_x[arg] = v; return new_x; }),

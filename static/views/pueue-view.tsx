@@ -2,6 +2,7 @@ import React from 'react';
 import {
     ExpandableRowContent,
     Table, Thead, Tbody, Tr, Th, Td,
+    ActionsColumn,
 } from '@patternfly/react-table';
 import {
     Alert,
@@ -24,6 +25,7 @@ import {
     TextInputGroupMain,
     TextInputGroupUtilities,
     TextVariants,
+    getBreakpoint,
 } from '@patternfly/react-core';
 
 import { TimesIcon, RedoIcon, PlusCircleIcon, ArrowRightIcon, TrashIcon, CopyIcon, SyncAltIcon, EditIcon, CrossIcon, OffIcon } from '@patternfly/react-icons';
@@ -165,36 +167,107 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
     const dateStart = task.start ? new Date(Date.parse(task.start)) : null;
     const dateEnd = task.end ? new Date(Date.parse(task.end)) : null;
 
+    const data : {[key : string] : React.ReactNode} = {};
+    const actions : {[key : string] : ()=>void} = {};
+
+    const dataPropertyTable = {
+        label: { title: 'Label', priority: 0 },
+        status: { title: 'Status', priority: 1 },
+        command: { title: 'Command', priority: 2 },
+        deps: { title: 'Dependencies', priority: 3 },
+        time: { title: 'Time Elapsed', priority: 4 },
+        dir: { title: 'Working Directory', priority: 5 },
+        env: { title: 'Environments', priority: 6, boarden: true },
+        logs: { title: 'Logs', priority: 7, boarden: true },
+    };
+
+    const actionsPropertyTable = {
+        add: { title: 'Add', priority: 0, icon: <PlusCircleIcon/> },
+        restart: { title: 'Restart', priority: 1, icon: <RedoIcon/> },
+        kill: { title: 'Kill', priority: 2, icon: <TimesIcon/> },
+        remove: { title: 'Remove', priority: 3, icon: <TrashIcon/> },
+        edit: { title: 'Edit', priority: 4, icon: <EditIcon/> },
+    };
+
+    if (isEditable || isNew) {
+        data.label = <TextInput placeholder='Label' {...bindForm('label')}/>;
+        data.command = <TextArea placeholder='Command' {...bindForm('command')} autoReize/>;
+        data.deps = <TextInput placeholder='Dependencies' {...bindForm('deps')}/>;
+        data.time = <TextInput placeholder='Delay (e.g. 15s, 1d)' {...bindForm('delay')}/>;
+
+        actions.add = async () => {
+            await pueueManager.pueue('add', {
+                label: form.label ? form.label : null,
+                after: form.deps  ? form.deps.split(',') : [],
+                delay: form.delay ? form.delay : null,
+                group: group,
+                working_directory: form.dir || groupDetail.dir || context.cwd,
+            }, [form.command]).then(alertDone);
+            if (!isNew)
+                setIsEditable(false);
+        };
+
+        if (!isNew) {
+            actions.restart = async ()=> {
+                await pueueManager.pueue('restart', {in_place: true, stashed: true}, [id]).then(alertDone);
+                await pueueManager.pueue_edit(id, {
+                        'command': form.command,
+                        'path': form.dir,
+                        'label': form.label,
+                    }).then(alertDone);
+                await pueueManager.pueue('enqueue', form.delay ? {delay: form.delay} : {}, [id]).then(alertDone);
+                setIsEditable(false);
+            };
+
+            actions.edit = ()=>setIsEditable(false);
+        }
+    }
+    else {
+        data.label = getLabel(id);
+        data.command = task.command;
+        data.deps = task.dependencies.map(getLabel);
+        data.time = <>{formatTime(dateStart)}&nbsp;&nbsp;<ArrowRightIcon/>&nbsp;&nbsp;{formatTime(dateEnd)}</>;
+
+        data.status = unfoldStatus(task.status).join(' ');
+        data.dir = task.path;
+
+        data.env = Object.keys(envs).length == 0 ? (
+            <Button size='sm' variant='secondary'
+                onClick={()=>pueueManager.pueue('status', {json: true, group, __controller_remove_envs: false}).then((data) => setEnvs(data.tasks[id].envs))}
+            >...</Button>
+        ) : (
+            <div className='envs-view'>
+                <pre>
+                    {Object.entries(envs).map(([k, v]) => `${k} = "${v}"`).join('\n')}
+                </pre>
+            </div>
+        );
+
+        data.logs = <LogView id={id}/>;
+
+        actions.kill = ()=>pueueManager.pueue('kill', {}, [id]).then(alertDone);
+        actions.remove = ()=>pueueManager.pueue('remove', {}, [id]).then(alertDone);
+        actions.restart = ()=>pueueManager.pueue('restart', {in_place: true}, [id]).then(alertDone);
+        actions.edit = () => {
+            setForm({label: task.label, command: task.command, deps: task.dependencies.join(','), delay: '', dir: task.path});
+            setIsEditable(true);
+        }
+    }
+
     const detailRow = (
         <Tr key='detail'>
-            <Td></Td>
+            {!context.sm && <Td></Td>}
             <Td colSpan={5}>
                 <ExpandableRowContent>
                     <DescriptionList isHorizontal termWidth='20ch' isCompact>
-                    { !isEditable && !isNew ?
-                        <>
-                        <Desc name={'Status'}>{unfoldStatus(task.status).join(' ')}</Desc>
-                        <Desc name={'Working Directory'}>{task.path}</Desc>
-                        <Desc name={'Environments'}>
-                            { Object.keys(envs).length == 0 ? (
-                                <Button size='sm' variant='secondary'
-                                    onClick={()=>pueueManager.pueue('status', {json: true, group, __controller_remove_envs: false}).then((data) => setEnvs(data.tasks[id].envs))}
-                                >...</Button>
-                                ) : (
-                                <div className='envs-view'>
-                                    <pre>
-                                        {Object.entries(envs).map(([k, v]) => `${k} = "${v}"`).join('\n')}
-                                    </pre>
-                                </div>
-                                )
-                            }
-                        </Desc>
-                        <Desc name={'Log'}><LogView id={id}/></Desc>
-                        </> :
-
-                        <>
-                        <Desc name={'Working Directory'}><TextInput placeholder={groupDetail.dir || context.cwd} {...bindForm('dir')}/></Desc>
-                        </>
+                    {
+                        Object.keys(data)
+                            .filter((k) => k != 'label')
+                            .sort((k1, k2) => dataPropertyTable[k1].priority - dataPropertyTable[k2].priority)
+                            .map((k) => (<>
+                                <Desc name={dataPropertyTable[k].title}>{dataPropertyTable[k].boarden && context.sm ? null : data[k]}</Desc>
+                                {dataPropertyTable[k].boarden && context.sm ? data[k] : null}
+                            </>))
                     }
                     </DescriptionList>
                 </ExpandableRowContent>
@@ -203,76 +276,32 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
     );
 
     const mainRow = (
-        <Tr key='main'>
-            <Td
-                expand={{
-                    rowIndex: Number(id),
-                    isExpanded,
-                    onToggle: () => setIsExapnded((v) => !v),
-                }}
-            >
-            </Td>
-            { !isEditable && !isNew ?
+        <Tr key={'main-' + id}>
+            <Td expand={{ rowIndex: Number(id), isExpanded, onToggle: () => setIsExapnded((v) => !v), }} />
+            { context.sm ? (
                 <>
-                <Td>{getLabel(id)}</Td>
-                <Td>{task.command}</Td>
-                <Td>{task.dependencies.map(getLabel)}</Td>
-                <Td>{formatTime(dateStart)}&nbsp;&nbsp;<ArrowRightIcon/>&nbsp;&nbsp;{formatTime(dateEnd)}</Td>
-                <Td>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('kill', {}, [id]).then(alertDone)}><TimesIcon/></Button>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('remove', {}, [id]).then(alertDone)}><TrashIcon/></Button>
-                    <Button variant='plain' onClick={()=>pueueManager.pueue('restart', {in_place: true}, [id]).then(alertDone)}><RedoIcon/></Button>
-                    <Button variant='plain' onClick={() => {
-                            setForm({label: task.label, command: task.command, deps: task.dependencies.join(','), delay: '', dir: task.path});
-                            setIsEditable(true);
-                        }}
-                    ><EditIcon/></Button>
-                </Td>
-                </> :
-
-                <>
-                <Td><TextInput placeholder='Label' {...bindForm('label')}/></Td>
-                <Td><TextArea placeholder='Command' {...bindForm('command')} autoReize/></Td>
-                <Td><TextInput placeholder='Dependencies' {...bindForm('deps')}/></Td>
-                <Td><TextInput placeholder='Delay (e.g. 15s, 1d)' {...bindForm('delay')}/></Td>
-                <Td>
-                    <Button variant='plain' onClick={async ()=> {
-                            await pueueManager.pueue('add', {
-                                label: form.label ? form.label : null,
-                                after: form.deps  ? form.deps.split(',') : [],
-                                delay: form.delay ? form.delay : null,
-                                group: group,
-                                working_directory: form.dir || groupDetail.dir || context.cwd,
-                            }, [form.command]).then(alertDone);
-                            if (!isNew)
-                                setIsEditable(false);
-                        }}
-                    >
-                        <PlusCircleIcon/>
-                    </Button>
-                    { !isNew ?
-                        <>
-                        <Button variant='plain' onClick={async ()=> {
-                                await pueueManager.pueue('restart', {in_place: true, stashed: true}, [id]).then(alertDone);
-                                await pueueManager.pueue_edit(id, {
-                                        'command': form.command,
-                                        'path': form.dir,
-                                        'label': form.label,
-                                    }).then(alertDone);
-                                await pueueManager.pueue('enqueue', form.delay ? {delay: form.delay} : {}, [id]).then(alertDone);
-                                setIsEditable(false);
-                            }}
-                            isDisabled={task.dependencies.join(',') != form.deps} /*pueue client backend does not support editing dependencies*/
-                        >
-                            <RedoIcon/>
-                        </Button>
-                        <Button variant='plain' onClick={()=>setIsEditable(false)}><EditIcon/></Button>
-                        </> :
-                        <></>
-                    }
-                </Td>
+                    <Td>{data.label}</Td>
+                    <ActionsColumn items={
+                        Object.keys(actions)
+                            .sort((k1, k2) => actionsPropertyTable[k1].priority - actionsPropertyTable[k2].priority)
+                            .map((k) => { return { title: actionsPropertyTable[k].title, onClick: actions[k] }; })
+                    } />
                 </>
-            }
+            ) : (
+                <>
+                    <Td>{data.label}</Td>
+                    <Td>{data.command}</Td>
+                    <Td>{data.deps}</Td>
+                    <Td>{data.time}</Td>
+                    <Td>
+                    { 
+                        Object.keys(actions)
+                            .sort((k1, k2) => actionsPropertyTable[k1].priority - actionsPropertyTable[k2].priority)
+                            .map((k) => <Button variant='plain' onClick={actions[k]}>{actionsPropertyTable[k].icon}</Button>)
+                    }
+                    </Td>
+                </>
+            )}
         </Tr>
     );
 
@@ -294,8 +323,8 @@ const PueueGroupTable = ({ group } : { group : string }) => {
 
     const alertDone = (x : string) => context.addAlert(x, 'Done', 'success');
 
-    const rows : React.ReactNode[] = Object.keys(context.tasks).map((id : string) => (<PueueTaskRow key={id} id={id} group={group}/>));
-    rows.push(<PueueTaskRow key='launch' id='launch' group={group}/>);
+    const rows : React.ReactNode[] = Object.keys(context.tasks).map((id : string) => (<PueueTaskRow key={id} id={id} group={group} />));
+    rows.push(<PueueTaskRow key='launch' id='launch' group={group} />);
 
     return (
     <Card>
@@ -348,8 +377,8 @@ const PueueGroupTable = ({ group } : { group : string }) => {
         </DescriptionList>
     </CardBody>
     <CardBody>
-        <Table variant='compact'>
-            <Thead>
+        <Table variant='compact' gridBreakPoint=''>
+            { !context.sm && <Thead>
                 <Tr>
                     <Th aria-label="expand"></Th>
                     <Th width={10}>Label</Th>
@@ -358,7 +387,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
                     <Th width={10}>Timing (<Text component={TextVariants.a}>Show Date</Text>)</Th>
                     <Th width={10} aria-label="actions"></Th>
                 </Tr>
-            </Thead>
+            </Thead> }
             {rows}
         </Table>
     </CardBody>
@@ -366,18 +395,26 @@ const PueueGroupTable = ({ group } : { group : string }) => {
     );
 };
 
-export const PueueView = ({ children } : { children : React.ReactNode }) => {
+function isSmall() {
+    return ['sm', 'default'].indexOf(getBreakpoint(window.innerWidth)) >= 0;
+}
+
+export const PueueView = ({ followGlobalDark, children } : { followGlobalDark : boolean, children : React.ReactNode }) => {
     const [ currentGroup, setCurrentGroup ] = React.useState<string>('default');
     const [ groups, setGroups ] = React.useState<{[id : string] : PueueGroup}>({});
     const [ tasks, setTasks ] = React.useState<{[id : string] : PueueTask}>({});
     const [ meta, setMeta ] = React.useState<PueueMeta>({cwd: ''});
     const [ alerts, setAlerts ] = React.useState<{[id : string] : { id: number, title: string, body: string, variant: string }}>({counter: { id: 0, title: '', body: '', variant: ''}});
+
+    // UI
     const [ dark, setDark ] = React.useState<boolean>(true);
+    const [ sm, setSm ] = React.useState(isSmall());
 
     const currentContext = new PueueContext();
     currentContext.tasks = structuredClone(tasks);
     currentContext.groups = structuredClone(groups);
     currentContext.cwd = meta.cwd;
+    currentContext.sm = sm;
 
     currentContext.updateStatus = () => {
         Promise.all([
@@ -425,6 +462,11 @@ export const PueueView = ({ children } : { children : React.ReactNode }) => {
 
     React.useEffect(() => {
         currentContext.updateStatus();
+        const onResize = ()=>setSm(isSmall());
+        window.addEventListener('resize', onResize);
+        return () => {
+            window.removeEventListener('resize', onResize);
+        }
     }, []);
 
     React.useEffect(() => {
@@ -443,7 +485,8 @@ export const PueueView = ({ children } : { children : React.ReactNode }) => {
     }, [currentGroup]);
 
     React.useEffect(() => {
-        document.documentElement.className = dark ? 'pf-v5-theme-dark' : '';
+        if (!followGlobalDark)
+            document.documentElement.className = dark ? 'pf-v5-theme-dark' : '';
     }, [dark]);
 
     const groupTabs = Object.keys(groups).map((group) => (
@@ -452,21 +495,26 @@ export const PueueView = ({ children } : { children : React.ReactNode }) => {
         </Tab>
     ));
 
+    const OptionalCard = sm ? React.Fragment : Card;
+    const OptionalCardBody = sm ? React.Fragment : CardBody;
+
     return (
     <PueueContextProvider value={currentContext}>
         {children}
-        <Card key='main-view'>
-            <CardBody>
-                <div style={{textAlign: 'right'}}>
-                    <Switch id='dark_mode' label='Dark Mode' labelOff='Light Mode' isChecked={dark} isReversed onChange={(_, b)=>setDark(b)} />
-                </div>
+        <OptionalCard key='main-view'>
+            <OptionalCardBody>
+                { followGlobalDark ? <></> : (
+                    <div style={{textAlign: 'right', paddingBottom: 10}}>
+                        <Switch id='dark_mode' label='Dark Mode' labelOff='Light Mode' isChecked={dark} isReversed onChange={(_, b)=>setDark(b)} />
+                    </div>
+                )}
                 <Tabs
                     isBox
                     activeKey={currentGroup}
                     onSelect={(_, k) => setCurrentGroup(k as string)}
                 >{groupTabs}</Tabs>
-            </CardBody>
-        </Card>
+            </OptionalCardBody>
+        </OptionalCard>
         <AlertGroup isToast key='alerts'>
         {
             Object.entries(alerts).map(([key, x]) => key == 'counter' ?
