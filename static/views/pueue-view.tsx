@@ -3,8 +3,11 @@ import {
     ExpandableRowContent,
     Table, Thead, Tbody, Tr, Th, Td,
     ActionsColumn,
+    InnerScrollContainer,
 } from '@patternfly/react-table';
 import {
+    ActionList,
+    ActionListItem,
     Alert,
     AlertActionCloseButton,
     AlertGroup,
@@ -84,11 +87,17 @@ const LogView = ({id}) => {
 };
 
 const Desc = (kv : any) => {
+    const context = React.useContext(pueueContext);
+    const horizon = !(kv.wrapOnSm && context.sm);
+
     return (
-        <DescriptionListGroup>
-            <DescriptionListTerm>{kv.name}</DescriptionListTerm>
-            <DescriptionListDescription>{kv.children}</DescriptionListDescription>
-        </DescriptionListGroup>
+        <>
+            <DescriptionListGroup>
+                <DescriptionListTerm>{kv.name}</DescriptionListTerm>
+                <DescriptionListDescription>{horizon && kv.children}</DescriptionListDescription>
+            </DescriptionListGroup>
+            {!horizon && kv.children}
+        </>
     );
 };
 
@@ -226,7 +235,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
         data.label = getLabel(id);
         data.command = task.command;
         data.deps = task.dependencies.map(getLabel);
-        data.time = <>{formatTime(dateStart)}&nbsp;&nbsp;<ArrowRightIcon/>&nbsp;&nbsp;{formatTime(dateEnd)}</>;
+        data.time = <Text style={{textWrap: 'nowrap'}}>{formatTime(dateStart)}&nbsp;&nbsp;<ArrowRightIcon/>&nbsp;&nbsp;{formatTime(dateEnd)}</Text>;
 
         data.status = unfoldStatus(task.status).join(' ');
         data.dir = task.path;
@@ -265,8 +274,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
                             .filter((k) => k != 'label')
                             .sort((k1, k2) => dataPropertyTable[k1].priority - dataPropertyTable[k2].priority)
                             .map((k) => (<>
-                                <Desc name={dataPropertyTable[k].title}>{dataPropertyTable[k].boarden && context.sm ? null : data[k]}</Desc>
-                                {dataPropertyTable[k].boarden && context.sm ? data[k] : null}
+                                <Desc name={dataPropertyTable[k].title} wrapOnSm={dataPropertyTable[k].boarden}>{data[k]}</Desc>
                             </>))
                     }
                     </DescriptionList>
@@ -293,13 +301,13 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
                     <Td>{data.command}</Td>
                     <Td>{data.deps}</Td>
                     <Td>{data.time}</Td>
-                    <Td>
+                    <Td><ActionList isIconList>
                     { 
                         Object.keys(actions)
                             .sort((k1, k2) => actionsPropertyTable[k1].priority - actionsPropertyTable[k2].priority)
-                            .map((k) => <Button variant='plain' onClick={actions[k]}>{actionsPropertyTable[k].icon}</Button>)
+                            .map((k) => <ActionListItem><Button variant='plain' onClick={actions[k]}>{actionsPropertyTable[k].icon}</Button></ActionListItem>)
                     }
-                    </Td>
+                    </ActionList></Td>
                 </>
             )}
         </Tr>
@@ -334,22 +342,30 @@ const PueueGroupTable = ({ group } : { group : string }) => {
             <Desc name={'Status'}>
                 {groupDetail.status}
             </Desc>
-            <Desc name={'Opeartions'}>
-                <Button variant='tertiary' size='sm'
-                    onClick={() =>
-                        (groupDetail.status == 'Running') ? 
-                            pueueManager.pueue('pause', {group}).then(alertDone).then(context.updateStatus) :
-                            pueueManager.pueue('start', {group}).then(alertDone).then(context.updateStatus)
-                    }
-                >
-                    {groupDetail.status == 'Running' ? 'Pause' : 'Resume'}
-                </Button>{' '}
-                <Button variant='tertiary' size='sm'
-                    onClick={() => pueueManager.pueue('clean', {group}).then(alertDone)}
-                >Clean</Button>{' '}
-                <Button variant='tertiary' size='sm'
-                    onClick={() => pueueManager.pueue(['group', 'delete'], {}, [group]).then(alertDone)}
-                >Delete</Button>
+            <Desc name={'Opeartions'} wrapOnSm>
+                <ActionList>
+                    <ActionListItem>
+                    <Button variant='tertiary' size='sm'
+                        onClick={() =>
+                            (groupDetail.status == 'Running') ? 
+                                pueueManager.pueue('pause', {group}).then(alertDone).then(context.updateStatus) :
+                                pueueManager.pueue('start', {group}).then(alertDone).then(context.updateStatus)
+                        }
+                    >
+                        {groupDetail.status == 'Running' ? 'Pause' : 'Resume'}
+                    </Button>
+                    </ActionListItem>
+                    <ActionListItem>
+                    <Button variant='tertiary' size='sm'
+                        onClick={() => pueueManager.pueue('clean', {group}).then(alertDone)}
+                    >Clean</Button>{' '}
+                    </ActionListItem>
+                    <ActionListItem>
+                    <Button variant='tertiary' size='sm'
+                        onClick={() => pueueManager.pueue(['group', 'delete'], {}, [group]).then(alertDone)}
+                    >Delete</Button>
+                    </ActionListItem>
+                </ActionList>
             </Desc>
             <Desc name={'Parallel Tasks'}>
                 <TextInputGroup>
@@ -362,7 +378,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
                     </TextInputGroupUtilities>
                 </TextInputGroup>
             </Desc>
-            <Desc name={'Working Directory'}>
+            <Desc name={'Working Directory'} wrapOnSm>
                 <TextInputGroup>
                     <TextInputGroupMain placeholder={context.cwd} {...bindForm('dir')}/>
                     <TextInputGroupUtilities>
@@ -377,19 +393,21 @@ const PueueGroupTable = ({ group } : { group : string }) => {
         </DescriptionList>
     </CardBody>
     <CardBody>
-        <Table variant='compact' gridBreakPoint=''>
-            { !context.sm && <Thead>
-                <Tr>
-                    <Th aria-label="expand"></Th>
-                    <Th width={10}>Label</Th>
-                    <Th width={40}>Command</Th>
-                    <Th width={10}>Dependencies</Th>
-                    <Th width={10}>Timing (<Text component={TextVariants.a}>Show Date</Text>)</Th>
-                    <Th width={10} aria-label="actions"></Th>
-                </Tr>
-            </Thead> }
-            {rows}
-        </Table>
+        <InnerScrollContainer>
+            <Table variant='compact' gridBreakPoint=''>
+                { !context.sm && <Thead>
+                    <Tr>
+                        <Th aria-label="expand"></Th>
+                        <Th width={10} style={{minWidth: 120}}>Label</Th>
+                        <Th width={40} style={{minWidth: 400}}>Command</Th>
+                        <Th width={10} style={{minWidth: 120}}>Dependencies</Th>
+                        <Th width={10}>Timing</Th>
+                        <Th width={10} aria-label="actions"></Th>
+                    </Tr>
+                </Thead> }
+                {rows}
+            </Table>
+        </InnerScrollContainer>
     </CardBody>
     </Card>
     );
