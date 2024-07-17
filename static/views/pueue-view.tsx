@@ -7,6 +7,7 @@ import {
 } from '@patternfly/react-table';
 import {
     ActionList,
+    ActionListGroup,
     ActionListItem,
     Alert,
     AlertActionCloseButton,
@@ -48,6 +49,7 @@ import {
 
 const LogView = ({id}) => {
     const [log, setLog] = React.useState<string>('');
+    const [follow, setFollow] = React.useState<boolean>(true);
     const elemRef = React.useRef<HTMLDivElement>(null);
 
     const appendLog = (e : Event) => {
@@ -74,15 +76,32 @@ const LogView = ({id}) => {
     }, []);
 
     React.useEffect(() => {
-        if (elemRef.current) {
+        if (elemRef.current && follow) {
             elemRef.current.scrollTop = elemRef.current.scrollHeight;
         }
     }, [log]);
 
+    const refresh = () => {
+        setLog('');
+        pueueManager.pueue_log_subscription(id, false);
+        pueueManager.pueue_log_subscription(id, true)
+            .then((data) => pueueManager.observer.dispatchEvent(new PueueMessageEvent('onLogUpdated', data)));
+    };
+
     return (
-        <div ref={elemRef} className='log-view'>
-            <pre>{log || '(This log is empty)'}</pre>
+        <>
+        <div style={{display: 'grid', position: 'relative'}}>
+            <div style={{position: 'absolute', top: 0, right: 15}}>
+                <ActionList isIconList>
+                    <ActionListItem><Button variant='plain' onClick={refresh}><RedoIcon/></Button></ActionListItem>
+                    <ActionListItem><Button variant='plain' onClick={() => setFollow((b) => !b)} style={follow ? {} : {textDecoration: 'line-through'}}>Fo</Button></ActionListItem>
+                </ActionList>
+            </div>
+            <div ref={elemRef} className='log-view'>
+                <pre>{log || '(This log is empty)'}</pre>
+            </div>
         </div>
+        </>
     );
 };
 
@@ -186,7 +205,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
         deps: { title: 'Dependencies', priority: 3 },
         time: { title: 'Time Elapsed', priority: 4 },
         dir: { title: 'Working Directory', priority: 5 },
-        env: { title: 'Environments', priority: 6, boarden: true },
+        env: { title: 'Environments', priority: 6, boarden: Object.keys(envs).length > 0 },
         logs: { title: 'Logs', priority: 7, boarden: true },
     };
 
@@ -271,7 +290,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
                     <DescriptionList isHorizontal termWidth='20ch' isCompact>
                     {
                         Object.keys(data)
-                            .filter((k) => k != 'label')
+                            .filter((k) => (context.sm ? ['label'] : ['label', 'command', 'deps', 'time']).indexOf(k) < 0)
                             .sort((k1, k2) => dataPropertyTable[k1].priority - dataPropertyTable[k2].priority)
                             .map((k) => (<>
                                 <Desc name={dataPropertyTable[k].title} wrapOnSm={dataPropertyTable[k].boarden}>{data[k]}</Desc>
@@ -334,6 +353,8 @@ const PueueGroupTable = ({ group } : { group : string }) => {
     const rows : React.ReactNode[] = Object.keys(context.tasks).map((id : string) => (<PueueTaskRow key={id} id={id} group={group} />));
     rows.push(<PueueTaskRow key='launch' id='launch' group={group} />);
 
+    const OptionalInnerScrollContainer = context.sm ? React.Fragment : InnerScrollContainer;
+
     return (
     <Card>
     <CardBody>
@@ -393,7 +414,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
         </DescriptionList>
     </CardBody>
     <CardBody>
-        <InnerScrollContainer>
+        <OptionalInnerScrollContainer>
             <Table variant='compact' gridBreakPoint=''>
                 { !context.sm && <Thead>
                     <Tr>
@@ -407,7 +428,7 @@ const PueueGroupTable = ({ group } : { group : string }) => {
                 </Thead> }
                 {rows}
             </Table>
-        </InnerScrollContainer>
+        </OptionalInnerScrollContainer>
     </CardBody>
     </Card>
     );
