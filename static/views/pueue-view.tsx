@@ -91,7 +91,7 @@ const LogView = ({id}) => {
     return (
         <>
         <div style={{display: 'grid', position: 'relative'}}>
-            <div style={{position: 'absolute', top: 0, right: 15}}>
+            <div style={{position: 'absolute', top: 0, right: 15, backgroundColor: 'rgba(0, 0, 0, 0.5)'}}>
                 <ActionList isIconList>
                     <ActionListItem><Button variant='plain' onClick={refresh}><RedoIcon/></Button></ActionListItem>
                     <ActionListItem><Button variant='plain' onClick={() => setFollow((b) => !b)} style={follow ? {} : {textDecoration: 'line-through'}}>Fo</Button></ActionListItem>
@@ -143,10 +143,20 @@ const TextArea = (prop: any) => {
     );
 };
 
-const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
-    const [ isExpanded, setIsExapnded ] = React.useState<boolean>(false);
+const PueueTaskRow = ({ id, group, initialExpanded } : { id : string, group : string, initialExpanded : boolean }) => {
+    const [ isExpanded, setIsExapnded ] = React.useState<boolean>(initialExpanded);
     const [ isEditable, setIsEditable ] = React.useState<boolean>(false);
     const [ envs, setEnvs ] = React.useState<{[v:string] : string}>({});
+
+    React.useEffect(() => {
+        if (initialExpanded && !isExpanded)
+            setIsExapnded(true);
+    }, [initialExpanded]);
+
+    React.useEffect(() => {
+        if (isExpanded)
+            setLocationHash(group, id);
+    }, [isExpanded]);
 
     const context = React.useContext(pueueContext);
     const task = context.tasks[id] || new PueueTask();
@@ -335,7 +345,7 @@ const PueueTaskRow = ({ id, group } : { id : string, group : string }) => {
     return (<Tbody isExpanded={isExpanded} className={'text-input-with-proper-background'}>{[mainRow, isExpanded ? detailRow : undefined]}</Tbody>);
 };
 
-const PueueGroupTable = ({ group } : { group : string }) => {
+const PueueGroupTable = ({ group, hash } : { group : string, hash : [string, string] }) => {
     const context = React.useContext(pueueContext);
     const groupDetail = context.groups[group];
 
@@ -350,8 +360,8 @@ const PueueGroupTable = ({ group } : { group : string }) => {
 
     const alertDone = (x : string) => context.addAlert(x, 'Done', 'success');
 
-    const rows : React.ReactNode[] = Object.keys(context.tasks).map((id : string) => (<PueueTaskRow key={id} id={id} group={group} />));
-    rows.push(<PueueTaskRow key='launch' id='launch' group={group} />);
+    const rows : React.ReactNode[] = Object.keys(context.tasks).map((id : string) => (<PueueTaskRow key={id} id={id} group={group} initialExpanded={id == hash[1]} />));
+    rows.push(<PueueTaskRow key='launch' id='launch' group={group} initialExpanded={false} />);
 
     const OptionalInnerScrollContainer = context.sm ? React.Fragment : InnerScrollContainer;
 
@@ -438,12 +448,27 @@ function isSmall() {
     return ['sm', 'default'].indexOf(getBreakpoint(window.innerWidth)) >= 0;
 }
 
+function getHashGroup() {
+    const pair = decodeURIComponent(window.location.hash.substring(1)).split('/');
+    return pair.length >= 1 ? pair[0] : '';
+}
+
+function getHashTask() {
+    const pair = decodeURIComponent(window.location.hash.substring(1)).split('/');
+    return pair.length >= 2 ? pair[1] : '';
+}
+
+function setLocationHash(hashGroup : string, hashTask : string = '') {
+    window.location.hash = '#' + encodeURIComponent(hashGroup) + (hashTask.length > 0 ? '/' + encodeURIComponent(hashTask) : '');
+}
+
 export const PueueView = ({ followGlobalDark, children } : { followGlobalDark : boolean, children : React.ReactNode }) => {
     const [ currentGroup, setCurrentGroup ] = React.useState<string>('default');
     const [ groups, setGroups ] = React.useState<{[id : string] : PueueGroup}>({});
     const [ tasks, setTasks ] = React.useState<{[id : string] : PueueTask}>({});
     const [ meta, setMeta ] = React.useState<PueueMeta>({cwd: ''});
     const [ alerts, setAlerts ] = React.useState<{[id : string] : { id: number, title: string, body: string, variant: string }}>({counter: { id: 0, title: '', body: '', variant: ''}});
+    const [ hash, setHash ] = React.useState<[string, string]>([getHashGroup(), getHashTask()]);
 
     // UI
     const [ dark, setDark ] = React.useState<boolean>(true);
@@ -492,6 +517,12 @@ export const PueueView = ({ followGlobalDark, children } : { followGlobalDark : 
         });
     };
 
+    const switchGroup = (groupName : string) => {
+        setCurrentGroup(groupName);
+        if (getHashGroup() != groupName)
+            setLocationHash(groupName);
+    };
+
     const updateStatusDelayed = async () => { await timeout(100); currentContext.updateStatus(); };
     const addAlertOnError = (_e : Event) => {
         const e = _e as PueueMessageEvent;
@@ -502,9 +533,12 @@ export const PueueView = ({ followGlobalDark, children } : { followGlobalDark : 
     React.useEffect(() => {
         currentContext.updateStatus();
         const onResize = ()=>setSm(isSmall());
+        const onHashChange = ()=>setHash([getHashGroup(), getHashTask()]);
         window.addEventListener('resize', onResize);
+        window.addEventListener('hashchange', onHashChange);
         return () => {
             window.removeEventListener('resize', onResize);
+            window.removeEventListener('hashchange', onHashChange);
         }
     }, []);
 
@@ -524,13 +558,20 @@ export const PueueView = ({ followGlobalDark, children } : { followGlobalDark : 
     }, [currentGroup]);
 
     React.useEffect(() => {
+        const hashGroup = getHashGroup();
+        console.log(hashGroup);
+        if (hashGroup != currentGroup && groups[hashGroup] !== undefined)
+            switchGroup(hashGroup);
+    }, [hash, groups]);
+
+    React.useEffect(() => {
         if (!followGlobalDark)
             document.documentElement.className = dark ? 'pf-v5-theme-dark' : '';
     }, [dark]);
 
     const groupTabs = Object.keys(groups).map((group) => (
         <Tab key={group} eventKey={group} title={group}>
-            { currentGroup == group ? <PueueGroupTable group={group}/> : <></> }
+            { currentGroup == group ? <PueueGroupTable group={group} hash={hash}/> : <></> }
         </Tab>
     ));
 
@@ -550,7 +591,7 @@ export const PueueView = ({ followGlobalDark, children } : { followGlobalDark : 
                 <Tabs
                     isBox
                     activeKey={currentGroup}
-                    onSelect={(_, k) => setCurrentGroup(k as string)}
+                    onSelect={(_, k) => switchGroup(k as string)}
                 >{groupTabs}</Tabs>
             </OptionalCardBody>
         </OptionalCard>
