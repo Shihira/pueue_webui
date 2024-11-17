@@ -124,10 +124,11 @@ export function establishWebsocket(url) : Promise<Connection> {
 };
 
 export async function establishCockpitChannel(cockpit : any) : Promise<Connection> {
+    const INSTALL_NAME = document.location.pathname.split('/')[3];
     const user = await cockpit.user();
     const processChannel = cockpit.spawn(
-        ["python3", "/usr/share/cockpit/utilities/scripts/pueue_main.py", "--stdio"], 
-        { directory: user.home });
+        [ "python3", cockpit.manifests[INSTALL_NAME].common.installation + "/scripts/pueue_main.py", "--stdio" ],
+        { directory: user.home, err: "message" });
     return {
         onRecv: (h) => { processChannel.stream((raw_data : string) => {
             raw_data.split('\n').filter((x) => x.trim().length !== 0).forEach(h); });
