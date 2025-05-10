@@ -18,6 +18,8 @@ export class PueueManager {
     callbacks : object = {};
     observer : EventTarget = new EventTarget();
 
+    pending_data : string = "";
+
     connection : Connection;
 
     onClose(data : any) {
@@ -34,8 +36,16 @@ export class PueueManager {
             data = JSON.parse(raw_data);
             console.log('recv', data);
         } catch(e) {
-            console.log('recv', raw_data);
-            return;
+            try {
+                data = JSON.parse(this.pending_data + raw_data);
+                console.log('recv', this.pending_data + raw_data);
+                this.pending_data = "";
+            }
+            catch(e) {
+                this.pending_data = this.pending_data + raw_data;
+                console.log('recv+cont', raw_data);
+                return;
+            }
         }
 
         if (data.method !== undefined) {
